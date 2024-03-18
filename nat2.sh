@@ -657,82 +657,51 @@ function iptables_ssh() {
 }
 
 
+function iptables_http() {
+  local option=$1
+  shift
+  if [ -z "${option}" ]; then
+    echo_fatal 'iptables_set_default need at least one params [DROP , ACCEPT]'
+  fi
+
+  iptables_port "${option}" --must-proto tcp --default-port 80 "$@"
+}
+
+
+function iptables_https() {
+  local option=$1
+  shift
+  if [ -z "${option}" ]; then
+    echo_fatal 'iptables_set_default need at least one params [DROP , ACCEPT]'
+  fi
+
+  iptables_port "${option}" --must-proto tcp --default-port 443 "$@"
+}
+
+
+function iptables_web() {
+  local option=$1
+  shift
+  if [ -z "${option}" ]; then
+    echo_fatal 'iptables_set_default need at least one params [DROP , ACCEPT]'
+  fi
+
+  iptables_port "${option}" --must-proto tcp --default-port 443,80 "$@"
+}
+
 # TODO implement iptable_port
 #iptable_loopback enable
 #iptables_ping enable --service --ip-from "192.168.1.1/24" --times 3 --freq 2/second
 #iptables_ping disable --service
 #iptables_ssh enable --service --ip-from "192.168.1.1/24" --times 3 --freq 2/second
-iptables_ssh enable --client --service
+echo '---'
+iptables_web disable --service
+echo '---'
+iptables_web disable --client
+#iptables_ssh enable --client --service
 
 exit 0
 
-
-echo 'client-start'
-iptables_ping enable --client
-echo 'service-start'
-iptables_ping enable --service
-echo 'end'
-
-exit 0
-
-
-
-
-function iptables_http() {
-  local interface=$1
-  if [ -z ${interface} ]; then
-    echo_fatal "$FUNCNAME must provide --interface xxx params"
-  fi
-
-  iptables_enable_port --interface ${interface} --outports 80
-}
-
-function iptables_httpd() {
-  local interface=$1
-  if [ -z ${interface} ]; then
-    echo_fatal "$FUNCNAME must provide --interface xxx params"
-  fi
-
-  iptables_enable_port --interface ${interface} --inports 80
-}
-
-function iptables_https() {
-  local interface=$1
-  if [ -z ${interface} ]; then
-    echo_fatal "$FUNCNAME must provide --interface xxx params"
-  fi
-
-  iptables_enable_port --interface ${interface} --outports 443
-}
-
-function iptables_httpsd() {
-  local interface=$1
-  if [ -z ${interface} ]; then
-    echo_fatal "$FUNCNAME must provide --interface xxx params"
-  fi
-
-  iptables_enable_port --interface ${interface} --inports 443
-}
-
-function iptables_web() {
-  local interface=$1
-  if [ -z ${interface} ]; then
-    echo_fatal "$FUNCNAME must provide --interface xxx params"
-  fi
-
-  iptables_http
-  iptables_https
-}
-
-function iptables_webd() {
-  local interface=$1
-  if [ -z ${interface} ]; then
-    echo_fatal "$FUNCNAME must provide --interface xxx params"
-  fi
-
-  iptables_httpd
-  iptables_httpsd
-}
 
 
 function iptables_cmd_nat() {
