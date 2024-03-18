@@ -529,11 +529,11 @@ function iptables_port() {
 
 
   if ${service}; then
-    iptables_wrap ${option} --proto ${protocol} --in-port ${ports}
+    iptables_wrap ${option} --proto ${protocol} --in-port ${ports} ${additional}
   fi
 
   if ${client}; then
-    iptables_wrap ${option} --proto ${protocol} --out-port ${ports}
+    iptables_wrap ${option} --proto ${protocol} --out-port ${ports} ${additional}
   fi
 
 }
@@ -644,91 +644,38 @@ function iptables_ping() {
 
 }
 
-
 #TODO merge ping to iptables_port
-#TODO additional params not valid
 
-function iptables_ssh2() {
+function iptables_ssh() {
   local option=$1
   shift
-  if [ -z ${option} ]; then
+  if [ -z "${option}" ]; then
     echo_fatal 'iptables_set_default need at least one params [DROP , ACCEPT]'
   fi
 
-  iptables_port ${option} --must-proto tcp --default-port 22 $@
+  iptables_port "${option}" --must-proto tcp --default-port 22 "$@"
 }
 
-function iptables_ssh() {
-
-  local ports=22
-  local service=false
-  local client=false
-  local additional=''
-
-  # ignore params
-  local protocol=
-
-	while [ $# -gt 0 ]; do
-		case $1 in
-			--service )
-				service=true
-			;;
-
-			--client )
-        client=true
-			;;
-
-			--port )
-				shift
-				ports=$1
-			;;
-
-			--in-port )
-				shift
-				ports=$1
-			;;
-
-			--out-port )
-				shift
-				ports=$1
-			;;
-
-			--proto )
-				shift
-				protocol=$1
-			;;
-
-			*)
-        additional="${additional} $1"
-      ;;
-		esac
-		shift
-	done
-
-
-  if [[ -n ${protocol} ]]  &&  [[ ${protocol} != 'tcp' ]]; then
-    echo_fatal "${FUNCNAME} can not allow \"${protocol}\" protocol"
-  fi
-
-
-  if ${service}; then
-    iptables_wrap ${option} --proto tcp --in-port ${ports}
-  fi
-
-  if ${client}; then
-    iptables_wrap ${option} --proto tcp --out-port ${ports}
-  fi
-
-}
 
 # TODO implement iptable_port
 #iptable_loopback enable
 #iptables_ping enable --service --ip-from "192.168.1.1/24" --times 3 --freq 2/second
 #iptables_ping disable --service
-iptables_ssh2 enable --service --ip-from "192.168.1.1/24" --times 3 --freq 2/second
-iptables_ssh2 enable --client
+#iptables_ssh enable --service --ip-from "192.168.1.1/24" --times 3 --freq 2/second
+iptables_ssh enable --client --service
 
-#exit 0
+exit 0
+
+
+echo 'client-start'
+iptables_ping enable --client
+echo 'service-start'
+iptables_ping enable --service
+echo 'end'
+
+exit 0
+
+
 
 
 function iptables_http() {
