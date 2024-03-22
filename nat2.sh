@@ -694,13 +694,13 @@ function iptables_web() {
 #iptables_ping enable --service --ip-from "192.168.1.1/24" --times 3 --freq 2/second
 #iptables_ping disable --service
 #iptables_ssh enable --service --ip-from "192.168.1.1/24" --times 3 --freq 2/second
-echo '---'
-iptables_web disable --service
-echo '---'
-iptables_web disable --client
+#echo '---'
+#iptables_web disable --service
+#echo '---'
+#iptables_web disable --client
 #iptables_ssh enable --client --service
 
-exit 0
+#exit 0
 
 
 
@@ -753,8 +753,8 @@ function iptables_cmd_nat() {
   fi
 
   # enable sysctl ip_forward
-  echo_msg 'set sysctl ip_forward=1'
-  sysctl net.ipv4.ip_forward=1 > /dev/null
+  #echo_msg 'set sysctl ip_forward=1'
+  #sysctl net.ipv4.ip_forward=1 > /dev/null
 
   # launch iptables and set iptables service start on launch
   echo_msg "Start iptable service ..."
@@ -766,12 +766,13 @@ function iptables_cmd_nat() {
 
 
   # base setting
-  echo_msg 'Set Default link to DROP ...'
-  iptables_set_default DROP
+  echo "skip drop"
+  #echo_msg 'Set Default link to DROP ...'
+  #iptables_set_default DROP
 
   if ${ping}; then
     echo_msg 'Enable ping ...'
-    iptables_ping ACCEPT
+    iptables_ping enable
   fi
   
   # set dns
@@ -782,14 +783,44 @@ function iptables_cmd_nat() {
   # set nat
   echo_msg 'Set nat rule ...'
   # 允许初始网络包
-  iptables -A FORWARD -o "${wan}" -i "${lan}" -m conntrack --ctstate NEW -j ACCEPT
+#  iptables -A FORWARD -o "${wan}" -i "${lan}" -m conntrack --ctstate NEW -j ACCEPT
   # 允许已经建立链接的网络包
   #sudo iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-  iptables -A FORWARD -o "${wan}" -i "${lan}" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-  iptables -A FORWARD -o "${lan}" -i "${wan}" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+#  iptables -A FORWARD -o "${wan}" -i "${lan}" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+#  iptables -A FORWARD -o "${lan}" -i "${wan}" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
   # 设置NAT
-  iptables -t nat -A POSTROUTING -o "${wan}" -j MASQUERADE
+  #iptables -t nat -A POSTROUTING -o "${wan}" -j MASQUERADE # 这个记得之前应该好使啊????!!!!
+  #iptables -t nat -A POSTROUTING -o "${wan}" -i "${lan}" -j MASQUERADE
 
+
+#  iptables -t nat -A POSTROUTING -s 192.168.56.0/24 -o "${wan}" -j SNAT --to-source 10.0.2.15
+  # iptables -t nat -A POSTROUTING -s 192.168.56.0/24 -o enp0s8 -j SNAT --to-source 10.0.2.15
+#  iptables -A FORWARD -o "${wan}" -i "${lan}" -j ACCEPT
+#  iptables -A FORWARD -o "${lan}" -i "${wan}" -j ACCEPT
+
+
+iptables -t nat -A POSTROUTING -s 192.168.56.0/24 -j SNAT --to 10.0.2.15
+iptables -t nat -A POSTROUTING -s 192.168.56.0/24 -j SNAT --to-source 10.0.2.15
+# iptables -t nat -A POSTROUTING -s 192.168.56.0/24 -o enp0s8 -j SNAT --to-source 10.0.2.15
+iptables -A FORWARD -o enp0s8 -i enp0s3 -j ACCEPT
+iptables -A FORWARD -o enp0s3 -i enp0s8 -j ACCEPT
+
+
+  # echo_msg 'Add a log ...'
+  # iptables -N LOGGING_INPUT
+  # iptables -A INPUT -j LOGGING_INPUT
+  # iptables -A LOGGING_INPUT -j LOG --log-prefix "IPTables INPUT Packet Dropped:" --log-level 7
+  # iptables -A LOGGING_INPUT -j ACCEPT
+
+  # iptables -N LOGGING_OUTPUT
+  # iptables -A INPUT -j LOGGING_OUTPUT
+  # iptables -A LOGGING_OUTPUT -j LOG --log-prefix "IPTables OUTPUT Packet Dropped:" --log-level 7
+  # iptables -A LOGGING_OUTPUT -j ACCEPT
+
+  # iptables -N LOGGING_FORWARD
+  # iptables -A INPUT -j LOGGING_FORWARD
+  # iptables -A LOGGING_FORWARD -j LOG --log-prefix "IPTables FORWARD Packet Dropped:" --log-level 7
+  # iptables -A LOGGING_FORWARD -j ACCEPT
 
   # log
   if ${log}; then
@@ -803,6 +834,9 @@ function iptables_cmd_nat() {
   iptables_save
 }
 
+
+#iptables_cmd_nat --lan enp0s8 --wan enp0s17 --log --ping
+
 echo '1'
 sub_cmd=$1
 if [[ -z ${sub_cmd} ]]; then
@@ -813,6 +847,9 @@ fi
 if [[ ${sub_cmd} == "nat" ]]; then
   shift
   iptables_cmd_nat $@
+  exit 0
+elif [[ ${sub_cmd} == "clear" ]]; then
+  iptables_clear
   exit 0
 else
   echo_fatal "Unknown sub command:${sub_cmd}. use ${sub_cmd} to show document"

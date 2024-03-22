@@ -1,3 +1,4 @@
+#!/bin/bash
 # check sysctl option
 echo 'check sysctl setting...'
 sysctl -p

@@ -1,0 +1,51 @@
+14:37:54 kernel: IPTables INPUT Packet DroppedIN=enp0s3 OUT= MAC=08:00:27:07:93:e2:a4:50:46:e5:66:31:08:00 SRC=192.168.43.1 DST=192.168.43.240 LEN=337 TOS=0x00 PREC=0x00 TTL=64 ID=61041 PROTO=UDP SPT=67 DPT=68 LEN=317 
+14:26:51 kernel: 06:00:18.960524 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+14:00:18 kernel: 06:00:18.840189 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+14:00:18 kernel: 06:00:18.463017 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+14:00:18 kernel: 06:00:18.249469 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+14:00:18 kernel: 06:00:17.909112 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+14:00:17 kernel: 06:00:17.679912 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+14:00:17 kernel: 05:59:49.302524 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+13:59:49 kernel: 05:59:48.857640 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+13:59:48 kernel: 05:59:41.268281 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+13:59:41 kernel: 05:59:40.701920 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+13:12:26 kernel: e1000: enp0s3 NIC Link is Up 1000 Mbps Full Duplex, Flow Control: RX
+12:46:58 kernel: clocksource: timekeeping watchdog on CPU0: kvm-clock retried 2 times before success
+12:46:58 kernel: 04:29:26.176489 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:29:26 kernel: 04:29:25.996600 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:29:26 kernel: 04:29:05.619807 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:29:05 kernel: 04:29:05.537422 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:29:05 kernel: 04:29:05.411437 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:29:05 kernel: 04:29:05.268650 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:29:05 kernel: 04:29:05.069789 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:29:05 kernel: 04:29:04.411727 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:29:04 kernel: 04:24:41.771457 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:24:41 kernel: 04:24:41.705737 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:24:41 kernel: 04:24:41.474494 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:24:41 kernel: 04:24:41.354721 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:24:41 kernel: 04:24:39.917629 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:24:39 kernel: 04:24:38.654186 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:24:38 kernel: 04:24:37.317602 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:24:37 kernel: 04:22:31.215490 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:22:31 kernel: 04:22:31.125366 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:22:31 kernel: 04:22:31.027169 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:22:31 kernel: 04:22:30.971062 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:22:30 kernel: 04:22:30.873201 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:22:30 kernel: 04:22:29.221056 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:22:29 kernel: 04:22:29.133220 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:22:29 kernel: 04:22:28.991573 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:22:28 kernel: 04:12:43.024202 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:12:43 kernel: 04:12:41.441248 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:11:55 kernel: clocksource: wd-tsc-wd read-back delay of 117024ns, clock-skew test skipped!
+12:11:55 kernel: 04:01:55.644404 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:01:55 kernel: 04:01:55.431613 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:01:55 kernel: 04:01:54.981929 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:01:54 kernel: 04:01:54.740846 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:01:54 kernel: 04:01:54.338687 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:01:54 kernel: 04:01:54.233762 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:01:54 kernel: 04:01:54.088709 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:01:54 kernel: 04:01:49.343560 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:01:49 kernel: 04:01:47.745652 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:01:47 kernel: 04:01:46.943670 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:01:46 kernel: 04:01:46.303457 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
+12:01:46 kernel: 04:01:46.152309 DrmResizeThread VBoxDRMClient: push screen layout data of 1 display(s) to DRM stack, fPartialLayout=false, rc=V
