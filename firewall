@@ -1,8 +1,9 @@
 #!/bin/bash
 
 CMD=$(basename $0)
-LAN='enp0s8'
-WAN='enp0s17'
+# LAN='enp0s8'
+# WAN='enp0s17'
+SYSCFG_PATH='/etc/sysctl.conf'
 RULE_DIR='/etc/myrule'
 FILENAME_NAT='iptables'
 FILENAME_NAT6='iptables6'
@@ -48,6 +49,39 @@ function yx_str_checkfmt()
 	return 0
 }
 
+function ip_forward_v4()
+{
+  local option=$1
+  shift
+  if [ -z ${option} ]; then
+    echo_fatal 'iptables_default need at least one params [DROP , ACCEPT]'
+  else
+    if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == '1' ]]; then
+      option='1'
+    else
+      option='0'
+    fi
+  fi
+
+  # 使用sed更改sysctl.conf中的ip_forward值
+  sed -i "s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g" "${SYSCFG_PATH}"
+ 
+  #如果需要，立即应用更改
+  sysctl -p > /dev/null
+
+  local result=0
+  if grep -Eq "^ *net.ipv4.ip_forward" "${SYSCFG_PATH}"; then
+    result=$(grep -E "^ *net.ipv4.ip_forward" "${SYSCFG_PATH}" | sed -e 's/^[^#=]*= *//g' )
+  else
+    result=0
+  fi
+
+  if [[ ${result} == 1 ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
 
 function echo_msg() { (>&1 echo "${1}") }
 function echo_warn() { local yellow=$(tput setaf 3); local reset=$(tput sgr0); (>&2 echo "${yellow}${1}${reset}") }
@@ -58,7 +92,7 @@ function echo_cmd()
   if $DEBUG; then
     echo "$@"
   fi
-  "$@"
+  $@
 }
 
 function analysis_cmd()
@@ -79,116 +113,483 @@ function analysis_cmd()
 
 function usage() {
 cat <<EOF
-	usage: ${CMD} [nat|] <optional>
+  usage: ${CMD} <sub-command> <optional>
+  For IPV4 package filtering and nat
 
-  nat : nat 
+  usage: ${CMD} <--help|-h> 
+  For this help information.
 
+  usage: ${CMD} <sub-command> <--help|-h>
+  For detail information for sub-command
+
+  The following sub-command are allowed:
+  start:    Start the firewall service
+  clear:    Clear all settings
+  save:     Save firewall change
+  default:  Set default police to filter table
+  filter:   Filter IPV4 package
+  nat:      SNAT or DNAT IPV4 package
+
+  The following sub-command for fast usage
+  port:     Filter package with specific ports.
+  loopback: Filter package on loopback.
+
+  The following sub-command for protocol fast usage
+  ping:     Fast command for icmp ping
+  ssh:      Fast command for ssh
+  http:     Fast command for http
+  https:    Fast command for https
+  web:      Fast command for web (all http, https and others...)
+EOF
+}
+
+function usage_clear() {
+cat <<EOF
+  usage: ${CMD} clear
+  Clear all settings.
+
+  Other options
+  Use '${CMD} --help' show all help information
+
+EOF
+}
+
+function usage_start() {
+cat <<EOF
+  usage: ${CMD} start
+  Start the firewall service
+
+  Other options
+  Use '${CMD} --help' show all help information
+
+EOF
+}
+
+function usage_save() {
+cat <<EOF
+  usage: ${CMD} save
+  Save the firewall change
+
+  Other options
+  Use '${CMD} --help' show all help information
+
+EOF
+}
+
+function usage_default() {
+cat <<EOF
+  usage: ${CMD} default <accept|drop> [options]
+
+  Set default police to filter table. 
+  NOTE: This command will always change all IPv6 policy to 'DROP'
+
+  The following options are allowed:
+  --input|-i    add input chain to target
+  --output|-o   add output chain to target
+  --forward|-f  add forward chain to target
+  --all|-a      add all chain to target
+  --help|-h     show this help information
+
+  Other options
+  Use '${CMD} --help' show all help information
+
+EOF
+}
+
+function usage_filter()
+{
+  cat <<EOF
+  usage: ${CMD} optional <accept|drop> [options]
+
+  For IPV4 package filtering
+
+  The following options are allowed:
+  --interface      Name of an interface via which a package was received.
+  --not-interface  Same as '--interface' but sense is inverted.
+
+  --proto          The protocol of the rule or of the packet to check. The specified protocol can be one of 'tcp'
+                   , 'udp', 'udplite', 'icmp', 'esp', 'ah', 'sctp', 'mh' or the special keyward 'all', or it can 
+                   be a numeric value, representing one of these protocols or a different one.
+  --inflag         Aditional parms of '--proto'. (Currently, only support --icmp-type for icmp protocol)
+  --outflag        Aditional parms of '--proto'. (Currently, only support --icmp-type for icmp protocol)
+
+  --in-port        Indicate ports for incomming connection. (use ',' for muti-port num. port1,port2,...)
+  --out-port       Indicate ports for outgoing connection. (use ',' for muti-port num. port1,port2,...)
+
+  --ip-from        Indicate ip-address from incomming connection. (support ip format: 192.168.0.1 | 192.168.0.1/24 | 192.168.0.1-192.168.0.99)
+  --ip-notfrom     Same as '--ip-from' but sense is inverted.
+  --ip-to          Indicate ip-address from outgoing connection (support ip format: 192.168.0.1 | 192.168.0.1/24 | 192.168.0.1-192.168.0.99)
+  --ip-notto       Same as 'ip-to' but sense is inverted.
+
+  --mac            Indicate a mac-address. (e.g. 11:22:33:44:55:66)
+  --notmac         Same as '--mac' but sense is inverted.
+
+  --limit rate     Maximum average matching rate: specified as a number, with an optional (/second|/minute|/hour|day). the default is 3/hour
+  --notlimit       Same as '--limit rate' but sense is inverted
+  --limit-burst    Maximum initial number of packets to match: this number gets recharged by one every time the limit specified above is not reached,
+                   up to this number; the default is 5.
+
+  --help|-h        show this help information
+
+  Other options
+  Use '${CMD} --help' show all help information
 EOF
 }
 
 function usage_nat() {
 cat <<EOF
-	usage: ${CMD} nat <optional>
+	usage: ${CMD} snat <optional>
+  
+  For IPV4 package NAT(Network Address Translation).
 
-  --lan|-l  
-  --wan|-w
+  --snat        Command work as SNAT(Source Network Address Translatioon)
+  --dnat        Command work as DNAT(Destination Network Address Translation)
+
+  --from-inter  Name of an interface which the source network durning the address translation.
+  --to-inter    Name of an interface which the destination network during the address translatioon.
+
+  Other options
+  Use '${CMD} --help' show all help information
 
 EOF
 }
 
 
-function iptables_start() {
-  local system=$(check_sys)
-  if [[ ${system} == "centos" || ${system} == "debian" ]]; then
-    systemctl start iptables.service
-    systemctl enable iptables.service
-  elif [[ ${system} == "ubuntu" ]]; then
-    :
-  else
-    :
-  fi
+function usage_port() {
+cat <<EOF
+  usage: ${CMD} port <ACCEPT|DROP> <--service|--client> <--port xxx,xxx,xxx>
+  Fast command for indicate ports number on fireware. It is '${CMD} filter''s wrapper command.
+
+  The followint options are allowed:
+  --service     Command work on incomming connection.
+  --client      Command work on outgoing connection.
+  --port        Indicate the port number.
+
+  Others:
+  All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
+  
+  NOTE: In this command, you should ignore '--in-port' and '--out-port' optional.
+        These two optional perform the same as '--port'.
+
+  Other options
+  Use '${CMD} --help' show all help information
+
+EOF
 }
 
-function iptables_save() {
-  local system=$(check_sys)
-  if [[ ${system} == "centos" || ${system} == "debian" ]]; then
-    service iptables save
-    service iptables stop
-    service iptables start
-  elif [[ ${system} == "ubuntu" ]]; then
 
-    if [ ! -d  "${RULE_DIR}" ]; then
-        echo_err "DIR ${RULE_DIR} not exist, try create one"
-        mkdir -p "${RULE_DIR}"
-        if [ ! -d  "${RULE_DIR}" ]; then
-          echo_fatal "mkdir ${RULE_DIR} ..."
-        fi
+function usage_loopback() {
+cat <<EOF
+  usage: ${CMD} loopback <ACCEPT|DROP>
+  Fast command for loopback interface. It is '${CMD} filter''s wrapper command.
+
+
+  Use '${CMD} filter --help' for more information.
+
+  Other options
+  Use '${CMD} --help' show all help information
+
+EOF
+}
+
+
+function usage_ping() {
+cat <<EOF
+  usage: ${CMD} ping <ACCEPT|DROP> <--service|--client> <--port xxx,xxx,xxx>
+  Fast command for icmp ping. It is '${CMD} filter''s wrapper command.
+
+  The followint options are allowed:
+  --service     For incomming ping request package.
+  --client      For outgoing ping request package.
+
+  Others:
+  All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
+  
+  NOTE: In this command, you should ignore '--proto' optional.
+
+  Other options
+  Use '${CMD} --help' show all help information
+
+EOF
+}
+
+
+function usage_ssh() {
+cat <<EOF
+  usage: ${CMD} ssh <ACCEPT|DROP> <--service|--client> <optional>
+  Fast command for ssh. It is '${CMD} filter''s wrapper command.
+
+  The followint options are allowed:
+  --service     For ssh service request package.
+  --client      For ssh client request package.
+  --port        Indicate the port number. default port number is 22.
+
+  Others:
+  All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
+  
+  NOTE: In this command, you should ignore '--in-port' and '--out-port' optional.
+        These two optional perform the same as '--port'.
+  NOTE: In this command, you should ignore '--proto' optional.
+
+  Other options
+  Use '${CMD} --help' show all help information
+
+EOF
+}
+
+
+function usage_http() {
+cat <<EOF
+  usage: ${CMD} http <ACCEPT|DROP> <--service|--client> <optional>
+  Fast command for http. It is '${CMD} filter''s wrapper command.
+
+  The followint options are allowed:
+  --service     For ssh service request package.
+  --client      For ssh client request package.
+  --port        Indicate the port number. default port number is 80.
+
+  Others:
+  All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
+  
+  NOTE: In this command, you should ignore '--in-port' and '--out-port' optional.
+        These two optional perform the same as '--port'.
+  NOTE: In this command, you should ignore '--proto' optional.
+
+  Other options
+  Use '${CMD} --help' show all help information
+
+EOF
+}
+
+
+
+function usage_https() {
+cat <<EOF
+  usage: ${CMD} https <ACCEPT|DROP> <--service|--client> <optional>
+  Fast command for https. It is '${CMD} filter''s wrapper command.
+
+  The followint options are allowed:
+  --service     For ssh service request package.
+  --client      For ssh client request package.
+  --port        Indicate the port number. default port number is 443.
+
+  Others:
+  All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
+  
+  NOTE: In this command, you should ignore '--in-port' and '--out-port' optional.
+        These two optional perform the same as '--port'.
+  NOTE: In this command, you should ignore '--proto' optional.
+
+  Other options
+  Use '${CMD} --help' show all help information
+
+EOF
+}
+
+
+function usage_web() {
+cat <<EOF
+  usage: ${CMD} web <ACCEPT|DROP> <--service|--client> <optional>
+  Fast command for web. It is '${CMD} filter''s wrapper command.
+
+  The followint options are allowed:
+  --service     For ssh service request package.
+  --client      For ssh client request package.
+  --port        Indicate the port number. default port number is 80,443.
+
+  Others:
+  All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
+  
+  NOTE: In this command, you should ignore '--in-port' and '--out-port' optional.
+        These two optional perform the same as '--port'.
+  NOTE: In this command, you should ignore '--proto' optional.
+
+  Other options
+  Use '${CMD} --help' show all help information
+
+EOF
+}
+
+
+function iptables_start()
+{
+  local option=$1
+  if [ -n "${option}" ]; then
+    if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
+      usage_start
+    else
+      echo_fatal "unknown optional \"${option}\""
     fi
-
-    # save current config
-    RULE_FILE="${RULE_DIR}/${FILENAME_NAT}".rules
-    local script_file_v4="/etc/network/if-pre-up.d/${FILENAME_NAT}"
-
-    RULE6_FILE="${RULE_DIR}/${FILENAME_NAT6}".rules
-    local script_file_v6="/etc/network/if-pre-up.d/${FILENAME_NAT6}"
-
-    echo_msg "Create iptables rule file: ${RULE_FILE}"
-    iptables-save > "${RULE_FILE}"
-
-    echo_msg "Create iptables rule file: ${RULE6_FILE}"
-    ip6tables-save > "${RULE6_FILE}"
-
-    # add script
-    echo_msg "Create launch script: ${script_file_v4}"
-    echo -e "#!/bin/bash\niptables-restore < ${RULE_FILE}" > "${script_file_v4}\n "
-
-    echo_msg "Create launch script: ${script_file_v6}"
-    echo -e "#!/bin/bash\niptables-restore < ${RULE6_FILE}" > "${script6_file_v6}\n "
-
   else
-    :
+    local system=$(check_sys)
+    if [[ ${system} == "centos" || ${system} == "debian" ]]; then
+      systemctl start iptables.service
+      systemctl enable iptables.service
+    elif [[ ${system} == "ubuntu" ]]; then
+      :
+    else
+      :
+    fi
   fi
 }
 
-function iptables_clear() {
-  iptables -F
-  iptables -t nat -F
-  iptables -X
-  iptables -t nat -X
-  iptables -Z
-  iptables -t nat -Z
+function iptables_save()
+{
+  local option=$1
+  if [ -n "${option}" ]; then
+    if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
+      usage_save
+    else
+      echo_fatal "unknown optional \"${option}\""
+    fi
+  else
+    local system=$(check_sys)
+    if [[ ${system} == "centos" || ${system} == "debian" ]]; then
+      service iptables save
+      service iptables stop
+      service iptables start
+    elif [[ ${system} == "ubuntu" ]]; then
 
-  ip6tables -F
-  ip6tables -t nat -F
-  ip6tables -X
-  ip6tables -t nat -X
-  ip6tables -Z
-  ip6tables -t nat -Z
+      if [ ! -d  "${RULE_DIR}" ]; then
+          echo_err "DIR ${RULE_DIR} not exist, try create one"
+          mkdir -p "${RULE_DIR}"
+          if [ ! -d  "${RULE_DIR}" ]; then
+            echo_fatal "mkdir ${RULE_DIR} ..."
+          fi
+      fi
+
+      # save current config
+      RULE_FILE="${RULE_DIR}/${FILENAME_NAT}".rules
+      local script_file_v4="/etc/network/if-pre-up.d/${FILENAME_NAT}"
+
+      RULE6_FILE="${RULE_DIR}/${FILENAME_NAT6}".rules
+      local script_file_v6="/etc/network/if-pre-up.d/${FILENAME_NAT6}"
+
+      #echo_msg "Create iptables rule file: ${RULE_FILE}"
+      iptables-save > "${RULE_FILE}"
+
+      #echo_msg "Create iptables rule file: ${RULE6_FILE}"
+      ip6tables-save > "${RULE6_FILE}"
+
+      # add script
+      #echo_msg "Create launch script: ${script_file_v4}"
+      echo -e "#!/bin/bash\niptables-restore < ${RULE_FILE}" > "${script_file_v4}\n "
+
+      #echo_msg "Create launch script: ${script_file_v6}"
+      echo -e "#!/bin/bash\niptables-restore < ${RULE6_FILE}" > "${script6_file_v6}\n "
+
+    else
+      :
+    fi
+  fi
+
+
 }
 
-function iptables_set_default() {
+function iptables_clear()
+{
+  local option=$1
+  if [ -n "${option}" ]; then
+    if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
+      usage_clear
+    else
+      echo_fatal "unknown optional \"${option}\""
+    fi
+  else
+    iptables -F
+    iptables -t nat -F
+    iptables -X
+    iptables -t nat -X
+    iptables -Z
+    iptables -t nat -Z
+
+    ip6tables -F
+    ip6tables -t nat -F
+    ip6tables -X
+    ip6tables -t nat -X
+    ip6tables -Z
+    ip6tables -t nat -Z
+  fi
+}
+
+function iptables_default()
+{
+  local opt_input=false
+  local opt_output=false
+  local opt_forward=false
+
 
   local option=$1
+  shift
   if [ -z ${option} ]; then
-    echo_fatal 'iptables_set_default need at least one params [DROP , ACCEPT]'
+    echo_fatal 'iptables_default need at least one params [DROP , ACCEPT]'
   fi
 
-  iptables -P INPUT ${option}
-  iptables -P OUTPUT ${option}
-  iptables -P FORWARD ${option}
+  if [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+    option="ACCEPT"
+  elif [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+    option="DROP"
+  elif [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
+    usage_default
+    exit 1
+  else
+    echo_fatal "unknown optional \"${option}\""
+  fi
 
-  # ipv6 always drop
+  while [ $# -gt 0 ]; do
+		case $1 in
+			-i | --input )
+        opt_input=true
+			;;
+
+			-o | --output )
+        opt_output=true
+			;;
+
+			-f | --forward )
+        opt_forward=true
+      ;;
+
+			-a | --all )
+        opt_input=true
+        opt_output=true
+        opt_forward=true
+			;;
+
+			-h | --help )
+        usage_default
+        exit 1
+			;;
+
+			*)
+        echo_fatal "Invalid optional ${1}, try '-h' or '--help' to show more information"
+				exit 1
+				;;
+		esac
+		shift
+	done
+
+  if ${opt_input}; then
+    iptables -P INPUT "${option}"
+  fi
+
+  if ${opt_output}; then
+    iptables -P OUTPUT "${option}"
+  fi
+
+  if ${opt_forward}; then
+    iptables -P FORWARD "${option}"
+  fi
+
+  # always drop ipv6
   ip6tables -P INPUT DROP
   ip6tables -P OUTPUT DROP
   ip6tables -P FORWARD DROP
+
 }
 
-
-## TODO help info
-## TODO support log
-
-# ip format: 192.168.0.1 | 192.168.0.1/24 | 192.168.0.1-192.168.0.99
-function iptables_wrap() {
+function iptables_filter()
+{
 
   local interface=
   local not_interface=
@@ -200,8 +601,9 @@ function iptables_wrap() {
   local inflag=
   local outflag=
 
-  local times=
-  local frequency=
+  local limit=
+  local not_limit=
+  local limit_burst=
 
   local ip_from=
   local ip_not_from=
@@ -252,14 +654,19 @@ function iptables_wrap() {
 				protocol=$1
 			;;
 
-      --times )
+      --limit )
 				shift
-        times=$1
+        limit=$1
       ;;
 
-      --freq )
+      --notlimit )
 				shift
-        freq=$1
+        not_limit=$1
+      ;;
+
+      --limit-burst )
+				shift
+        limit_burst=$1
       ;;
 
       --ip-from )
@@ -287,25 +694,26 @@ function iptables_wrap() {
         mac=$1
       ;;
 
-      --not-mac )
+      --notmac )
 				shift
         not_mac=$1
       ;;
 
 			*)
-        usage
-				exit
+        echo_fatal "Invalid optional ${1}, try '-h' or '--help' to show more information"
 				;;
 		esac
 		shift
 	done
 
 
-  local optional_params=''
-  if [[ ${option} == 'enable' ]]; then
-    optional_params="ACCEPT"
-  elif [[ ${option} == 'disable' ]]; then
-    optional_params="DROP"
+  if [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+    option="ACCEPT"
+  elif [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+    option="DROP"
+  elif [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
+    usage_filter
+    exit 1
   else
     echo_fatal "unknown optional \"${option}\""
   fi
@@ -348,26 +756,32 @@ function iptables_wrap() {
   fi
 
   # Test -m limit params
-  # --limit [6/second | 6/min | xx/s]
+  # --limit_freq [6/second | 6/min | xx/hour 6/day]
   local limit_params=''
-  if [[ -n ${times} ]] || [[ -n ${frequency} ]]; then
+  if [[ -n ${limit_burst} ]] || [[ -n ${limit} ]] || [[ -n ${not_limit} ]]; then
     limit_params=' -m limit'
 
     # --limit
-    if [[ -n ${freq} ]]; then
-      if yx_str_checkfmt '^([0-9])+/(s|min|second)$' "${freq}"; then
-        limit_params="${limit_params} --limit ${freq}"
+    if [[ -n ${limit} ]]; then
+      if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|day)$' "${limit}"; then
+        limit_params="${limit_params} --limit ${limit}"
       else
-        echo_fatal "\"${freq}\" is not a valid params for --freq"
+        echo_fatal "\"${limit}\" is not a valid params for --freq"
+      fi
+    elif [[ -n ${not_limit} ]]; then
+      if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|day)$' "${not_limit}"; then
+        limit_params="${limit_params} ! --limit ${not_limit}"
+      else
+        echo_fatal "\"${not_limit}\" is not a valid params for --freq"
       fi
     fi
     
     # --limit-burst
-    if [[ -n ${times} ]]; then
-      if yx_str_checkfmt '^([0-9])+$' "${times}"; then
-        limit_params="${limit_params} --limit-burst ${times}"
+    if [[ -n ${limit_burst} ]]; then
+      if yx_str_checkfmt '^([0-9])+$' "${limit_burst}"; then
+        limit_params="${limit_params} --limit-burst ${limit_burst}"
       else
-        echo_fatal "\"${times}\" is not a valid params for --times"
+        echo_fatal "\"${limit_burst}\" is not a valid params for --limit"
       fi
     fi
 
@@ -424,29 +838,132 @@ function iptables_wrap() {
 
 
   if [[ -z ${inports} ]]  &&  [[ -z ${outports} ]]; then
-      echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${optional_params}"
-      echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${optional_params}"
+      echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${option}"
+      echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${option}"
   else
     if [[ -n ${inports} ]]; then
-      echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${inports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${optional_params}"
-      echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport${limit_params} --sports ${inports}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${optional_params}"
+      echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${inports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
+      echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport${limit_params} --sports ${inports}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
     fi
 
     if [[ -n ${outports} ]]; then
-      echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${outports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${optional_params}"
-      echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport${limit_params} --sports ${outports}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${optional_params}"
+      echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${outports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
+      echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport${limit_params} --sports ${outports}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
     fi
   fi
 
 }
 
+function iptables_nat()
+{
 
-function iptables_port() {
+  local snat=false
+  local dnat=false
+  
+  # lan
+  local from_inter=
+  # wan
+  local to_inter=
+  local log=false
 
+	while [ $# -gt 0 ]; do
+		case $1 in
+
+			--snat )
+				snat=true
+			;;
+
+			--dnat )
+				dnat=true
+			;;
+
+			--from-inter )
+				shift
+				from_inter=$1
+			;;
+
+			--to-inter )
+				shift
+				to_inter=$1
+			;;
+
+			--log )
+				log=true
+			;;
+
+			*)
+        usage_nat
+				exit
+				;;
+		esac
+		shift
+	done
+
+  if [[ -z ${from_inter} ]]; then
+    echo_fatal "Invalid --from-inter params"
+  fi
+
+  if [[ -z ${to_inter} ]]; then
+    echo_fatal "Invalid --to-inter params"
+  fi
+
+  if ${snat}; then
+
+    if ${dnat}; then
+      echo_fatal "Can not set both '--snat' and '--dnat' in one command"
+    fi
+
+    # set net.ipv4.ip_forward=1
+    #echo "IP forwarding has been set to '1'"
+    if ! ip_forward_v4 enable; then
+      echo_fatal "failed to change net.ipv4.ip_forward item to '1'"
+    fi
+
+    # 允许初始网络包转发
+    iptables -A FORWARD -o "${to_inter}" -i "${from_inter}" -m conntrack --ctstate NEW -j ACCEPT
+    # 允许已经建立链接的网络包转发
+    #sudo iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    iptables -A FORWARD -o "${to_inter}" -i "${from_inter}" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    iptables -A FORWARD -o "${from_inter}" -i "${to_inter}" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+    # 设置SNAT
+    #iptables -t nat -A POSTROUTING -s 192.168.56.0/24 -j SNAT --to-source 10.0.2.15
+    iptables -t nat -A POSTROUTING -o "${to_inter}" -j MASQUERADE # 这个记得之前应该好使啊????!!!!
+
+    # 设置一个dnat, 强制DNS使用1.1.1.1
+    #这个不需要设置
+    #如果设置，客户端DNS的IP好像必须设置成一样的
+    #sudo iptables -t nat -A PREROUTING -p udp --dport 53 -j DNAT --to 1.1.1.1
+
+  elif ${dnat};then
+    echo_fatal 'not implement !!!'
+  else
+    echo_fatal "One of '--snat' or '--dnat' must be set."
+  fi
+
+
+  # log
+  if ${log}; then
+    echo_msg 'Add a log record droped INPUT package ...'
+    iptables -N LOGGING
+    iptables -A INPUT -j LOGGING
+    iptables -A LOGGING -m limit --limit 2/min -j LOG --log-prefix "IPTables INPUT Packet Dropped:" --log-level 7
+    iptables -A LOGGING -j DROP
+  fi
+
+}
+
+function iptables_port()
+{
   local option=$1
   shift
   if [ -z ${option} ]; then
-    echo_fatal 'iptables_set_default need at least one params [DROP , ACCEPT]'
+    echo_fatal 'iptables port need at least one params [DROP , ACCEPT]'
+  fi
+
+  if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
+    usage_port
+    exit 1
   fi
 
   local ports=
@@ -510,12 +1027,12 @@ function iptables_port() {
 
   if [[ -n ${protocol} ]]; then
     if [[ -n ${must_proto} ]] && [[ ${protocol} != ${must_proto} ]]; then
-        echo_fatal "${FUNCNAME} can not allow \"${protocol}\" protocol"
+        echo_fatal "${CMD} port can not allow \"${protocol}\" protocol"
     fi
   else
     protocol=${must_proto}
     if [[ -z ${protocol} ]]; then
-        echo_fatal "${FUNCNAME} must provide \"--proto\" or \"--must-proto\" params"
+        echo_fatal "${CMD} port must provide \"--proto\" or \"--must-proto\" params"
     fi
   fi
 
@@ -523,30 +1040,32 @@ function iptables_port() {
   if [[ -z ${ports} ]]; then
     ports=${default_ports}
     if [[ -z ${ports} ]]; then
-      echo_fatal "${FUNCNAME} must provide --ports params"
+      echo_fatal "${CMP} port must provide --ports params"
     fi
   fi
 
 
   if ${service}; then
-    iptables_wrap ${option} --proto ${protocol} --in-port ${ports} ${additional}
-  fi
-
-  if ${client}; then
-    iptables_wrap ${option} --proto ${protocol} --out-port ${ports} ${additional}
+    iptables_filter ${option} --proto ${protocol} --in-port ${ports} ${additional}
+  elif ${client}; then
+    iptables_filter ${option} --proto ${protocol} --out-port ${ports} ${additional}
+  else
+    echo_fatal "${CMD} ping must at least indicate one of --service and --client optional"
   fi
 
 }
-
-
-
 
 function iptables_loopback(){
 
   local option=$1
   shift
   if [ -z ${option} ]; then
-    echo_fatal "${FUNCNAME} need at least one params [DROP , ACCEPT]"
+    echo_fatal "${CMD} loopback need at least one params [DROP , ACCEPT]"
+  fi
+
+  if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
+    usage_loopback
+    exit 1
   fi
 
 
@@ -559,7 +1078,7 @@ function iptables_loopback(){
 	while [ $# -gt 0 ]; do
 		case $1 in
 
-			--proto )
+      --interface )
 				shift
 				interface=$1
 			;;
@@ -578,17 +1097,17 @@ function iptables_loopback(){
 
 
   if [[ -n ${interface} ]]  &&  [[ ${interface} != 'icmp' ]]; then
-    echo_fatal "${FUNCNAME} can not allow \"${interface}\" interface"
+    echo_fatal "${CMD} loopback can not allow \"${interface}\" interface"
   fi
 
   if [[ -n ${not_interface} ]]; then
-    echo_fatal "${FUNCNAME} can not support --not-interface params"
+    echo_fatal "${CMD} loopback can not support --not-interface params"
   fi
 
 
   # iptables -A INPUT -i lo -j ACCEPT
   # iptables -A OUTPUT -o lo -j ACCEPT
-  iptables_wrap ${option} --interface lo
+  iptables_filter ${option} --interface lo
 }
 
 function iptables_ping() {
@@ -596,8 +1115,14 @@ function iptables_ping() {
   local option=$1
   shift
   if [ -z ${option} ]; then
-    echo_fatal 'iptables_set_default need at least one params [DROP , ACCEPT]'
+    echo_fatal 'iptables_default need at least one params [DROP , ACCEPT]'
   fi
+
+  if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
+    usage_ping
+    exit 1
+  fi
+
 
   local service=false
   local client=false
@@ -630,27 +1155,30 @@ function iptables_ping() {
 
 
   if [[ -n ${protocol} ]]  &&  [[ ${protocol} != 'icmp' ]]; then
-    echo_fatal "${FUNCNAME} can not allow \"${protocol}\" protocol"
+    echo_fatal "${CMD} pint can not allow \"${protocol}\" protocol"
   fi
 
 
   if ${service}; then
-    iptables_wrap ${option} --proto icmp --in-flag echo-request --out-flag echo-reply ${additional}
-  fi
-
-  if ${client}; then
-    iptables_wrap ${option} --proto icmp --out-flag echo-request --in-flag echo-reply ${additional}
+    iptables_filter ${option} --proto icmp --in-flag echo-request --out-flag echo-reply ${additional}
+  elif ${client}; then
+    iptables_filter ${option} --proto icmp --out-flag echo-request --in-flag echo-reply ${additional}
+  else
+    echo_fatal "${CMD} ping must at least indicate one of --service and --client optional"
   fi
 
 }
-
-#TODO merge ping to iptables_port
 
 function iptables_ssh() {
   local option=$1
   shift
   if [ -z "${option}" ]; then
-    echo_fatal 'iptables_set_default need at least one params [DROP , ACCEPT]'
+    echo_fatal 'iptables ssh need at least one params [DROP , ACCEPT]'
+  fi
+
+  if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
+    usage_ssh
+    exit 1
   fi
 
   iptables_port "${option}" --must-proto tcp --default-port 22 "$@"
@@ -661,7 +1189,12 @@ function iptables_http() {
   local option=$1
   shift
   if [ -z "${option}" ]; then
-    echo_fatal 'iptables_set_default need at least one params [DROP , ACCEPT]'
+    echo_fatal 'iptables http need at least one params [DROP , ACCEPT]'
+  fi
+
+  if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
+    usage_http
+    exit 1
   fi
 
   iptables_port "${option}" --must-proto tcp --default-port 80 "$@"
@@ -672,7 +1205,12 @@ function iptables_https() {
   local option=$1
   shift
   if [ -z "${option}" ]; then
-    echo_fatal 'iptables_set_default need at least one params [DROP , ACCEPT]'
+    echo_fatal 'iptables https need at least one params [DROP , ACCEPT]'
+  fi
+
+  if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
+    usage_https
+    exit 1
   fi
 
   iptables_port "${option}" --must-proto tcp --default-port 443 "$@"
@@ -683,7 +1221,12 @@ function iptables_web() {
   local option=$1
   shift
   if [ -z "${option}" ]; then
-    echo_fatal 'iptables_set_default need at least one params [DROP , ACCEPT]'
+    echo_fatal 'iptables web need at least one params [DROP , ACCEPT]'
+  fi
+
+  if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
+    usage_web
+    exit 1
   fi
 
   iptables_port "${option}" --must-proto tcp --default-port 443,80 "$@"
@@ -691,9 +1234,9 @@ function iptables_web() {
 
 # TODO implement iptable_port
 #iptable_loopback enable
-#iptables_ping enable --service --ip-from "192.168.1.1/24" --times 3 --freq 2/second
+#iptables_ping enable --service --ip-from "192.168.1.1/24" --limit 3 --freq 2/second
 #iptables_ping disable --service
-#iptables_ssh enable --service --ip-from "192.168.1.1/24" --times 3 --freq 2/second
+#iptables_ssh enable --service --ip-from "192.168.1.1/24" --limit 3 --freq 2/second
 #echo '---'
 #iptables_web disable --service
 #echo '---'
@@ -704,128 +1247,83 @@ function iptables_web() {
 
 
 
-function iptables_cmd_nat() {
-
-  local lan=
-  local wan=
-  local log=false
-  local ping=false
-
-	while [ $# -gt 0 ]; do
-		case $1 in
-			--lan )
-				shift
-				lan=$1
-			;;
-
-			--wan )
-				shift
-				wan=$1
-			;;
-
-			--log )
-				log=true
-			;;
-
-			--ping )
-				ping=true
-			;;
-
-			*)
-        usage_nat
-				exit
-				;;
-		esac
-		shift
-	done
-
-
-  if [[ -z ${lan} ]]; then
-    echo_fatal "Invalid --lan params"
-  fi
-
-  if [[ -z ${wan} ]]; then
-    echo_fatal "Invalid --wan params"
-  fi
-
-  if [ $(id -u) -ne 0 ]; then
-    echo_fatal "Script should run with root"
-  fi
-
-  # enable sysctl ip_forward
-  #echo_msg 'set sysctl ip_forward=1'
-  #sysctl net.ipv4.ip_forward=1 > /dev/null
-
-  # launch iptables and set iptables service start on launch
-  echo_msg "Start iptable service ..."
-  iptables_start
-
-  # clear
-  echo_msg 'Clear all settings ...'
-  iptables_clear
-
-
-  # base setting
-  echo "skip drop"
-  #echo_msg 'Set Default link to DROP ...'
-  iptables_set_default DROP
-
-  if ${ping}; then
-    echo_msg 'Enable ping ...'
-    iptables_ping enable
-  fi
-  
-  # set dns
-  # 这个不需要设置
-  # 如果设置，客户端DNS的IP好像必须设置成一样的
-  # sudo iptables -t nat -A PREROUTING -p udp --dport 53 -j DNAT --to 1.1.1.1
-
-  # set nat
-  echo_msg 'Set nat rule ...'
-  # 允许初始网络包
-  iptables -A FORWARD -o "${wan}" -i "${lan}" -m conntrack --ctstate NEW -j ACCEPT
-  # 允许已经建立链接的网络包
-  #sudo iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-  iptables -A FORWARD -o "${wan}" -i "${lan}" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-  iptables -A FORWARD -o "${lan}" -i "${wan}" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-  # 设置NAT
-  #iptables -t nat -A POSTROUTING -s 192.168.56.0/24 -j SNAT --to-source 10.0.2.15
-  iptables -t nat -A POSTROUTING -o "${wan}" -j MASQUERADE # 这个记得之前应该好使啊????!!!!
-
-
-
-
-  # log
-  if ${log}; then
-    echo_msg 'Add a log record droped INPUT package ...'
-    iptables -N LOGGING
-    iptables -A INPUT -j LOGGING
-    iptables -A LOGGING -m limit --limit 2/min -j LOG --log-prefix "IPTables INPUT Packet Dropped:" --log-level 7
-    iptables -A LOGGING -j DROP
-  fi
-
-  iptables_save
-}
-
-
-#iptables_cmd_nat --lan enp0s8 --wan enp0s17 --log --ping
-
-echo '1'
 sub_cmd=$1
+shift
 if [[ -z ${sub_cmd} ]]; then
-  echo_fatal "param error. use ${cmd} help to show document"
+  echo_fatal "param error. use '${CMD} --help' to show document"
 fi
 
 
-if [[ ${sub_cmd} == "nat" ]]; then
-  shift
-  iptables_cmd_nat $@
-  exit 0
+if [[ ${sub_cmd} == "start" ]]; then
+  if [ "$(id -u)" -ne 0 ]; then
+    echo_fatal "'${CMD} start' should run with root"
+  fi
+  iptables_start $@
 elif [[ ${sub_cmd} == "clear" ]]; then
-  iptables_clear
+  if [ "$(id -u)" -ne 0 ]; then
+    echo_fatal "'${CMD} clear' should run with root"
+  fi
+  iptables_clear $@
+elif [[ ${sub_cmd} == "save" ]]; then
+  if [ "$(id -u)" -ne 0 ]; then
+    echo_fatal "'${CMD} save' should run with root"
+  fi
+  iptables_save $@
+elif [[ ${sub_cmd} == "default" ]]; then
+  if [ "$(id -u)" -ne 0 ]; then
+    echo_fatal "'${CMD} default' should run with root"
+  fi
+  iptables_default $@
+elif [[ ${sub_cmd} == "filter" ]]; then
+  if [ "$(id -u)" -ne 0 ]; then
+    echo_fatal "'${CMD} filter' should run with root"
+  fi
+  iptables_filter $@
+elif [[ ${sub_cmd} == "nat" ]]; then
+  if [ "$(id -u)" -ne 0 ]; then
+    echo_fatal "'${CMD} nat' should run with root"
+  fi
+  iptables_nat $@
+elif [[ ${sub_cmd} == "port" ]]; then
+  if [ "$(id -u)" -ne 0 ]; then
+    echo_fatal "'${CMD} port' should run with root"
+  fi
+  iptables_port $@
+elif [[ ${sub_cmd} == "loopback" ]]; then
+  if [ "$(id -u)" -ne 0 ]; then
+    echo_fatal "'${CMD} loopback' should run with root"
+  fi
+  iptables_loopback $@
+elif [[ ${sub_cmd} == "ping" ]]; then
+  if [ "$(id -u)" -ne 0 ]; then
+    echo_fatal "'${CMD} loopback' should run with root"
+  fi
+  iptables_ping $@
+elif [[ ${sub_cmd} == "ssh" ]]; then
+  if [ "$(id -u)" -ne 0 ]; then
+    echo_fatal "'${CMD} ssh' should run with root"
+  fi
+  iptables_ssh $@
+elif [[ ${sub_cmd} == "http" ]]; then
+  if [ "$(id -u)" -ne 0 ]; then
+    echo_fatal "'${CMD} http' should run with root"
+  fi
+  iptables_http $@
+elif [[ ${sub_cmd} == "https" ]]; then
+  if [ "$(id -u)" -ne 0 ]; then
+    echo_fatal "'${CMD} https' should run with root"
+  fi
+  iptables_https $@
+elif [[ ${sub_cmd} == "web" ]]; then
+  if [ "$(id -u)" -ne 0 ]; then
+    echo_fatal "'${CMD} web' should run with root"
+  fi
+  iptables_web $@
+elif [[ ${sub_cmd} == "--help" ]] || [[ ${sub_cmd} == '-h' ]]; then
+  usage
   exit 0
 else
-  echo_fatal "Unknown sub command:${sub_cmd}. use ${sub_cmd} to show document"
+  echo_fatal "Unknown sub command:'${sub_cmd}'. Use '${CMD} --help' to show document"
 fi
 
 
