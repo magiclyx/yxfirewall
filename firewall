@@ -64,9 +64,15 @@ function ip_forward_v4()
   fi
 
   # 使用sed更改sysctl.conf中的ip_forward值
+  #:echo_cmd
+  echo_warn 'Set ipv4.ip_forward = 1 ...'
+  echo_msg "sed -i \"s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g\" \"${SYSCFG_PATH}\""
   sed -i "s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g" "${SYSCFG_PATH}"
  
   #如果需要，立即应用更改
+  #:echo_cmd
+  echo_warn 'Make system configure enable...'
+  echo_msg "sysctl -p > /dev/null"
   sysctl -p > /dev/null
 
   local result=0
@@ -84,15 +90,31 @@ function ip_forward_v4()
 }
 
 
-function echo_msg() { (>&1 echo "${1}") }
+function echo_msg()
+{
+  local str=
+	if (( $# == 0 )) ; then
+		read -r -t 5 -d $'\0' str
+#		num=`cat < /dev/stdin`
+	else
+		str="$*"
+	fi
+
+  (>&1 echo "${str}")
+}
+
+    
+function echo_noti() { local blue=$(tput setaf 4); local reset=$(tput sgr0); (>&1 echo "${blue}${1}${reset}") }
+function echo_succ() { local green=$(tput setaf 2); local reset=$(tput sgr0); (>&1 echo "${green}${1}${reset}") }
 function echo_warn() { local yellow=$(tput setaf 3); local reset=$(tput sgr0); (>&2 echo "${yellow}${1}${reset}") }
 function echo_err() { local magenta=$(tput setaf 5); local reset=$(tput sgr0); (>&2 echo "${magenta}${1}${reset}") }
 function echo_fatal() { local red=$(tput setaf 1); local reset=$(tput sgr0); (>&2 echo "${red}Fatal:${1}${reset}"); exit 1; }
+
+# Can not handle 'pipe' and 'output redirect'
+# Use '#:echo_cmd' mark all not handle code place
 function echo_cmd()
 {
-  if $DEBUG; then
-    echo "$@"
-  fi
+  echo_msg "$@"
   $@
 }
 
@@ -441,8 +463,9 @@ function iptables_start()
   else
     local system=$(check_sys)
     if [[ ${system} == "centos" || ${system} == "debian" ]]; then
-      systemctl start iptables.service
-      systemctl enable iptables.service
+      echo_warn 'Start iptables service...'
+      echo_cmd "start iptables.service"
+      echo_cmd "enable iptables.service"
     elif [[ ${system} == "ubuntu" ]]; then
       :
     else
@@ -516,20 +539,24 @@ function iptables_save()
       # iptables -A LAST_LOGGING -j LOG --log-prefix "${log_input_prefix}" --log-level 7
       # iptables -A LAST_LOGGING -j DROP
 
-      iptables -A INPUT -j LOG --log-prefix "${log_input_prefix}" --log-level 7
+      echo_warn 'Add INPUT DROP Log ...'
+      echo_cmd "iptables -A INPUT -j LOG --log-prefix ${log_input_prefix} --log-level 7"
     fi
 
 
     local system=$(check_sys)
     if [[ ${system} == "centos" || ${system} == "debian" ]]; then
-      service iptables save
-      service iptables stop
-      service iptables start
+      echo_warn 'Save changes...'
+      echo_cmd "service iptables save"
+
+      echo_warn 'Restart iptables services...'
+      echo_cmd "service iptables stop"
+      echo_cmd "service iptables start"
     elif [[ ${system} == "ubuntu" ]]; then
 
       if [ ! -d  "${RULE_DIR}" ]; then
           echo_err "DIR ${RULE_DIR} not exist, try create one"
-          mkdir -p "${RULE_DIR}"
+          echo_cmd "mkdir -p ${RULE_DIR}"
           if [ ! -d  "${RULE_DIR}" ]; then
             echo_fatal "mkdir ${RULE_DIR} ..."
           fi
@@ -542,19 +569,16 @@ function iptables_save()
       RULE6_FILE="${RULE_DIR}/${FILENAME_NAT6}".rules
       local script_file_v6="/etc/network/if-pre-up.d/${FILENAME_NAT6}"
 
-      #echo_msg "Create iptables rule file: ${RULE_FILE}"
-      iptables-save > "${RULE_FILE}"
-
-      #echo_msg "Create iptables rule file: ${RULE6_FILE}"
-      ip6tables-save > "${RULE6_FILE}"
-
-      # add script
-      #echo_msg "Create launch script: ${script_file_v4}"
-      echo -e "#!/bin/bash\niptables-restore < ${RULE_FILE}" > "${script_file_v4}\n "
-
-      #echo_msg "Create launch script: ${script_file_v6}"
-      echo -e "#!/bin/bash\niptables-restore < ${RULE6_FILE}" > "${script6_file_v6}\n "
-
+      # Create iptables rule file ...
+      echo_warn "Create iptables rule file ..."
+      echo_cmd "/usr/sbin/iptables-save --file ${RULE_FILE}"
+      echo_cmd "/usr/sbin/ip6tables-save --file ${RULE6_FILE}"
+      
+      # Create launch script ...
+      echo_warn "Create launch script ..."
+      echo -e "#!/bin/bash\niptables-restore < ${RULE_FILE}" | tee ${script_file_v4} | echo_msg
+      echo -e "#!/bin/bash\niptables-restore < ${RULE6_FILE}" | tee ${script_file_v6} | echo_msg
+      
     else
       :
     fi
@@ -589,19 +613,21 @@ function iptables_clear()
       echo_fatal "unknown optional \"${option}\""
     fi
   else
-    iptables -F
-    iptables -t nat -F
-    iptables -X
-    iptables -t nat -X
-    iptables -Z
-    iptables -t nat -Z
 
-    ip6tables -F
-    ip6tables -t nat -F
-    ip6tables -X
-    ip6tables -t nat -X
-    ip6tables -Z
-    ip6tables -t nat -Z
+    echo_warn 'Clear all rules...'
+    echo_cmd "iptables -F"
+    echo_cmd "iptables -X"
+    echo_cmd "iptables -Z"
+    echo_cmd "iptables -t nat -F"
+    echo_cmd "iptables -t nat -X"
+    echo_cmd "iptables -t nat -Z"
+
+    echo_cmd "ip6tables -F"
+    echo_cmd "ip6tables -X"
+    echo_cmd "ip6tables -Z"
+    echo_cmd "ip6tables -t nat -F"
+    echo_cmd "ip6tables -t nat -X"
+    echo_cmd "ip6tables -t nat -Z"
   fi
 }
 
@@ -669,32 +695,43 @@ function iptables_default()
 	done
 
   if ! ${show}; then
+
+    echo_warn 'Set default policy...'
+
     if ${opt_input}; then
-      iptables -P INPUT "${option}"
+      echo_cmd "iptables -P INPUT ${option}"
     fi
 
     if ${opt_output}; then
-      iptables -P OUTPUT "${option}"
+      echo_cmd "iptables -P OUTPUT ${option}"
     fi
 
     if ${opt_forward}; then
-      iptables -P FORWARD "${option}"
+      echo_cmd "iptables -P FORWARD ${option}"
     fi
 
     # always drop ipv6
-    ip6tables -P INPUT DROP
-    ip6tables -P OUTPUT DROP
-    ip6tables -P FORWARD DROP
+    echo_cmd "ip6tables -P INPUT DROP"
+    echo_cmd "ip6tables -P OUTPUT DROP"
+    echo_cmd "ip6tables -P FORWARD DROP"
   else
+
     if ${opt_input}; then
-      iptables -L INPUT -nv | head --lines 1 | awk '{print $4}' | grep -o "[^ ]\+\( \+[^ ]\+\)*"
+       #:echo_cmd
+       echo_msg "iptables -L INPUT -nv | head --lines 1 | awk '{print $4}' | grep -o \"[^ ]\+\( \+[^ ]\+\)*\""
     fi
 
     if ${opt_output}; then
+      #:echo_cmd
+      echo_warn 'Test OUTPUT default policy...'
+      echo_msg "iptables -L OUTPUT -nv | head --lines 1 | awk '{print $4}' | grep -o \"[^ ]\+\( \+[^ ]\+\)*\""
       iptables -L OUTPUT -nv | head --lines 1 | awk '{print $4}' | grep -o "[^ ]\+\( \+[^ ]\+\)*"
     fi
 
     if ${opt_forward}; then
+      #:echo_cmd
+      echo_warn 'Test FORWARD default policy...'
+      echo_msg "iptables -L FORWARD -nv | head --lines 1 | awk '{print $4}' | grep -o \"[^ ]\+\( \+[^ ]\+\)*\""
       iptables -L FORWARD -nv | head --lines 1 | awk '{print $4}' | grep -o "[^ ]\+\( \+[^ ]\+\)*"
     fi
   fi
@@ -970,9 +1007,14 @@ function iptables_filter()
           if [[ -z ${log_prefix} ]]; then
             log_prefix='Iptable-Forward:'
           fi
+          
+          # Add filter log...
+          echo_warn 'Add filter log...'
           echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j LOG --log-prefix ${log_prefix} --log-level 4"
           echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j LOG --log-prefix ${log_prefix} --log-level 4"
         fi
+        # Add filter rule...
+        echo_warn 'Add filter rule...'
         echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${option}"
         echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${option}"
     else
@@ -982,8 +1024,13 @@ function iptables_filter()
           if [[ -z ${log_prefix} ]]; then
             log_prefix='Iptable-Forward:'
           fi
+          # Add filter incoming log...
+          echo_warn 'Add filter incoming log...'
           echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${inports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
         fi
+
+        # Add filter incoming rule...
+        echo_warn 'Add filter incoming rule...'
         echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${inports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
         echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport${limit_params} --sports ${inports}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
       fi
@@ -993,8 +1040,13 @@ function iptables_filter()
           if [[ -z ${log_prefix} ]]; then
             log_prefix='Iptable-Forward:'
           fi
+          # Add filter outgoing log...
+          echo_warn 'Add filter outgoing log...'
           echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${outports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
         fi
+
+        # Add filter outgoing rule...
+        echo_warn 'Add filter outgoing rule...'
         echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${outports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
         echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport${limit_params} --sports ${outports}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
       fi
@@ -1065,7 +1117,7 @@ function iptables_nat()
 
 
   if ${show}; then
-    iptables -t nat -nvL
+    echo_cmd "iptables -t nat -nvL"
     exit 0
   elif ${snat}; then
 
@@ -1092,17 +1144,25 @@ function iptables_nat()
       if [[ -z ${log_prefix} ]]; then
         log_prefix='Iptable-Forward:'
       fi
-      iptables -A FORWARD -o "${to_inter}" -i "${from_inter}" -m conntrack --ctstate NEW -j LOG --log-prefix "${log_prefix}" --log-level 4
+      
+      # Add forwarding log
+      echo_warn 'Add forwarding log...'
+      echo_cmd "iptables -A FORWARD -o ${to_inter} -i ${from_inter} -m conntrack --ctstate NEW -j LOG --log-prefix ${log_prefix} --log-level 4"
     fi
-    iptables -A FORWARD -o "${to_inter}" -i "${from_inter}" -m conntrack --ctstate NEW -j ACCEPT
+
+    # Add forwarding rule
+    echo_warn 'Add forwarding rule...'
+    echo_cmd "iptables -A FORWARD -o ${to_inter} -i ${from_inter} -m conntrack --ctstate NEW -j ACCEPT"
     # 允许已经建立链接的网络包转发
     #sudo iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-    iptables -A FORWARD -o "${to_inter}" -i "${from_inter}" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-    iptables -A FORWARD -o "${from_inter}" -i "${to_inter}" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    echo_cmd "iptables -A FORWARD -o ${to_inter} -i ${from_inter} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
+    echo_cmd "iptables -A FORWARD -o ${from_inter} -i ${to_inter} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
 
     # 设置SNAT
+    # add SNAT rule
+    echo_warn 'add SNAT rule...'
     #iptables -t nat -A POSTROUTING -s 192.168.56.0/24 -j SNAT --to-source 10.0.2.15
-    iptables -t nat -A POSTROUTING -o "${to_inter}" -j MASQUERADE # 这个记得之前应该好使啊????!!!!
+    echo_cmd "iptables -t nat -A POSTROUTING -o ${to_inter} -j MASQUERADE" # 这个记得之前应该好使啊????!!!!
 
     # 设置一个dnat, 强制DNS使用1.1.1.1
     #这个不需要设置
@@ -1396,19 +1456,11 @@ function iptables_web() {
   iptables_port "${option}" --must-proto tcp --default-port 443,80 "$@"
 }
 
-# TODO implement iptable_port
-#iptable_loopback enable
-#iptables_ping enable --service --ip-from "192.168.1.1/24" --limit 3 --freq 2/second
-#iptables_ping disable --service
-#iptables_ssh enable --service --ip-from "192.168.1.1/24" --limit 3 --freq 2/second
-#echo '---'
-#iptables_web disable --service
-#echo '---'
-#iptables_web disable --client
-#iptables_ssh enable --client --service
-
-#exit 0
-
+# echo_noti 'noti'
+# echo_succ 'succ'
+# echo_warn 'warn'
+# echo_err 'err'
+# echo_fatal 'fatal'
 
 
 sub_cmd=$1

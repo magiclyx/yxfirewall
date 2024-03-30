@@ -1,4 +1,6 @@
 #!/bin/bash
+
+
 sudo ./firewall start 
 sudo ./firewall clear
 sudo ./firewall default DROP --all
@@ -6,6 +8,9 @@ sudo ./firewall default DROP --all
 sudo ./firewall nat --snat --from-inter enp0s8 --to-inter enp0s3 --log firewall-forward:
 sudo ./firewall save --log-input firewall-input-drop:
 
+echo ""
+echo ""
+echo "####################################################################################################"
 sudo ./firewall filter --list
 # sudo ./firewall nat --list
 # sudo iptables -nvL
