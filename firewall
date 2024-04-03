@@ -23,6 +23,18 @@ INFO_INFO=8
 INFO_DEBUG=9
 INFO_LEVEL=${INFO_ERROR} # default error
 
+#CMD
+IPTABLES='/usr/sbin/iptables'
+IP6TABLES='/usr/sbin/ip6tables'
+
+IPTABLES_SAVE='/usr/sbin/iptables-save'
+IP6TABLES_SAVE='/usr/sbin/ip6tables-save'
+
+IPTABLES_RESTORE='/usr/sbin/iptables-restore'
+IP6TABLES_RESTORE='/usr/sbin/ip6tables-restore'
+
+SYSCTL='/usr/sbin/sysctl'
+
 
 ####################################################################################################
 # OS-TYPE
@@ -111,7 +123,7 @@ function linux_type()
 	    release="unknown"
 	fi
 
-    echo "${release}"
+  echo "${release}"
 }
 
 ####################################################################################################
@@ -404,8 +416,8 @@ function ip_forward_v4()
   #如果需要，立即应用更改
   #:echo_cmd
   echo_warn 'Make system configure enable...'
-  echo_info "sysctl -p > /dev/null"
-  sysctl -p > /dev/null
+  echo_info "${SYSCTL} -p > /dev/null"
+  "${SYSCTL}" -p > /dev/null
 
   local result=0
   if grep -Eq "^ *net.ipv4.ip_forward" "${SYSCFG_PATH}"; then
@@ -1221,7 +1233,6 @@ function iptables_save()
 
 			*)
         echo_fatal "Invalid optional ${1}, try '-h' or '--help' to show more information"
-				exit 1
       ;;
 		esac
 		shift
@@ -1252,7 +1263,7 @@ function iptables_save()
       # iptables -A LAST_LOGGING -j DROP
 
       echo_warn 'Add INPUT DROP Log ...'
-      echo_cmd "iptables -A INPUT -j LOG --log-prefix ${log_input_prefix} --log-level 7"
+      echo_cmd "${IPTABLES} -A INPUT -j LOG --log-prefix ${log_input_prefix} --log-level 7"
     fi
 
     if ${log_output}; then
@@ -1262,7 +1273,7 @@ function iptables_save()
       fi
 
       echo_warn 'Add OUTPUT DROP Log ...'
-      echo_cmd "iptables -A OUTPUT -j LOG --log-prefix ${log_output_prefix} --log-level 7"
+      echo_cmd "${IPTABLES} -A OUTPUT -j LOG --log-prefix ${log_output_prefix} --log-level 7"
     fi
 
 
@@ -1273,7 +1284,7 @@ function iptables_save()
       fi
 
       echo_warn 'Add FORWARD DROP Log ...'
-      echo_cmd "iptables -A FORWARD -j LOG --log-prefix ${log_forward_prefix} --log-level 7"
+      echo_cmd "${IPTABLES} -A FORWARD -j LOG --log-prefix ${log_forward_prefix} --log-level 7"
     fi
 
 
@@ -1304,13 +1315,13 @@ function iptables_save()
 
       # Create iptables rule file ...
       echo_warn "Create iptables rule file ..."
-      echo_cmd "/usr/sbin/iptables-save --file ${RULE_FILE}"
-      echo_cmd "/usr/sbin/ip6tables-save --file ${RULE6_FILE}"
+      echo_cmd "${IPTABLES_SAVE} --file ${RULE_FILE}"
+      echo_cmd "${IP6TABLES_SAVE} --file ${RULE6_FILE}"
       
       # Create launch script ...
       echo_warn "Create launch script ..."
-      echo -e "#!/bin/bash\niptables-restore < ${RULE_FILE}" | tee ${script_file_v4} | echo_info
-      echo -e "#!/bin/bash\niptables-restore < ${RULE6_FILE}" | tee ${script_file_v6} | echo_info
+      echo -e "#!/bin/bash\n${IPTABLES_RESTORE} < ${RULE_FILE}" | tee ${script_file_v4} | echo_info
+      echo -e "#!/bin/bash\n${IP6TABLES_RESTORE} < ${RULE6_FILE}" | tee ${script_file_v6} | echo_info
       
     else
       :
@@ -1373,19 +1384,19 @@ function iptables_clear()
 
     echo_warn 'Clear all rules...'
 
-    echo_cmd "iptables -F"
-    echo_cmd "iptables -X"
-    echo_cmd "iptables -Z"
-    echo_cmd "iptables -t nat -F"
-    echo_cmd "iptables -t nat -X"
-    echo_cmd "iptables -t nat -Z"
+    echo_cmd "${IPTABLES} -F"
+    echo_cmd "${IPTABLES} -X"
+    echo_cmd "${IPTABLES} -Z"
+    echo_cmd "${IPTABLES} -t nat -F"
+    echo_cmd "${IPTABLES} -t nat -X"
+    echo_cmd "${IPTABLES} -t nat -Z"
 
-    echo_cmd "ip6tables -F"
-    echo_cmd "ip6tables -X"
-    echo_cmd "ip6tables -Z"
-    echo_cmd "ip6tables -t nat -F"
-    echo_cmd "ip6tables -t nat -X"
-    echo_cmd "ip6tables -t nat -Z"
+    echo_cmd "${IP6TABLES} -F"
+    echo_cmd "${IP6TABLES} -X"
+    echo_cmd "${IP6TABLES} -Z"
+    echo_cmd "${IP6TABLES} -t nat -F"
+    echo_cmd "${IP6TABLES} -t nat -X"
+    echo_cmd "${IP6TABLES} -t nat -Z"
   fi
 
 }
@@ -1492,36 +1503,36 @@ function iptables_default()
       echo_warn 'Set default policy...'
 
       if ${opt_input}; then
-        echo_cmd "iptables -P INPUT ${option}"
+        echo_cmd "${IPTABLES} -P INPUT ${option}"
       fi
 
       if ${opt_output}; then
-        echo_cmd "iptables -P OUTPUT ${option}"
+        echo_cmd "${IPTABLES} -P OUTPUT ${option}"
       fi
 
       if ${opt_forward}; then
-        echo_cmd "iptables -P FORWARD ${option}"
+        echo_cmd "${IPTABLES} -P FORWARD ${option}"
       fi
 
       # always drop ipv6
-      echo_cmd "ip6tables -P INPUT DROP"
-      echo_cmd "ip6tables -P OUTPUT DROP"
-      echo_cmd "ip6tables -P FORWARD DROP"
+      echo_cmd "${IP6TABLES} -P INPUT DROP"
+      echo_cmd "${IP6TABLES} -P OUTPUT DROP"
+      echo_cmd "${IP6TABLES} -P FORWARD DROP"
     else
 
       if ${opt_input}; then
         #:echo_cmd
-        iptables -L INPUT -nv | head --lines 1 | awk '{print $4}' | grep -o "[^ ]\+\( \+[^ ]\+\)*"
+        "${IPTABLES}" -L INPUT -nv | head --lines 1 | awk '{print $4}' | grep -o "[^ ]\+\( \+[^ ]\+\)*"
       fi
 
       if ${opt_output}; then
         #:echo_cmd
-        iptables -L OUTPUT -nv | head --lines 1 | awk '{print $4}' | grep -o "[^ ]\+\( \+[^ ]\+\)*"
+        "${IPTABLES}" -L OUTPUT -nv | head --lines 1 | awk '{print $4}' | grep -o "[^ ]\+\( \+[^ ]\+\)*"
       fi
 
       if ${opt_forward}; then
         #:echo_cmd
-        iptables -L FORWARD -nv | head --lines 1 | awk '{print $4}' | grep -o "[^ ]\+\( \+[^ ]\+\)*"
+        "${IPTABLES}" -L FORWARD -nv | head --lines 1 | awk '{print $4}' | grep -o "[^ ]\+\( \+[^ ]\+\)*"
       fi
     fi
   fi
@@ -1830,13 +1841,13 @@ function iptables_filter()
             
             # Add filter log...
             echo_warn 'Add filter log...'
-            echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j LOG --log-prefix ${log_prefix} --log-level 4"
-            echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j LOG --log-prefix ${log_prefix} --log-level 4"
+            echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j LOG --log-prefix ${log_prefix} --log-level 4"
+            echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j LOG --log-prefix ${log_prefix} --log-level 4"
           fi
           # Add filter rule...
           echo_warn 'Add filter rule...'
-          echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${option}"
-          echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${option}"
+          echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${option}"
+          echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${option}"
       else
 
         if [[ -n ${inports} ]]; then
@@ -1846,13 +1857,13 @@ function iptables_filter()
             fi
             # Add filter incoming log...
             echo_warn 'Add filter incoming log...'
-            echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${inports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
+            echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${inports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
           fi
 
           # Add filter incoming rule...
           echo_warn 'Add filter incoming rule...'
-          echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${inports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
-          echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport${limit_params} --sports ${inports}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
+          echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${inports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
+          echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport${limit_params} --sports ${inports}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
         fi
 
         if [[ -n ${outports} ]]; then
@@ -1862,13 +1873,13 @@ function iptables_filter()
             fi
             # Add filter outgoing log...
             echo_warn 'Add filter outgoing log...'
-            echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${outports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
+            echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${outports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
           fi
 
           # Add filter outgoing rule...
           echo_warn 'Add filter outgoing rule...'
-          echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${outports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
-          echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport${limit_params} --sports ${outports}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
+          echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${outports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
+          echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport${limit_params} --sports ${outports}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
         fi
 
       fi # end of [[ -z ${inports} ]]  &&  [[ -z ${outports} ]]
@@ -1979,22 +1990,22 @@ function iptables_nat()
       
       # Add forwarding log
       echo_warn 'Add forwarding log...'
-      echo_cmd "iptables -A FORWARD -o ${to_inter} -i ${from_inter} -m conntrack --ctstate NEW -j LOG --log-prefix ${log_prefix} --log-level 4"
+      echo_cmd "${IPTABLES} -A FORWARD -o ${to_inter} -i ${from_inter} -m conntrack --ctstate NEW -j LOG --log-prefix ${log_prefix} --log-level 4"
     fi
 
     # Add forwarding rule
     echo_warn 'Add forwarding rule...'
-    echo_cmd "iptables -A FORWARD -o ${to_inter} -i ${from_inter} -m conntrack --ctstate NEW -j ACCEPT"
+    echo_cmd "${IPTABLES} -A FORWARD -o ${to_inter} -i ${from_inter} -m conntrack --ctstate NEW -j ACCEPT"
     # 允许已经建立链接的网络包转发
     #sudo iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-    echo_cmd "iptables -A FORWARD -o ${to_inter} -i ${from_inter} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
-    echo_cmd "iptables -A FORWARD -o ${from_inter} -i ${to_inter} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
+    echo_cmd "${IPTABLES} -A FORWARD -o ${to_inter} -i ${from_inter} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
+    echo_cmd "${IPTABLES} -A FORWARD -o ${from_inter} -i ${to_inter} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
 
     # 设置SNAT
     # add SNAT rule
     echo_warn 'add SNAT rule...'
     #iptables -t nat -A POSTROUTING -s 192.168.56.0/24 -j SNAT --to-source 10.0.2.15
-    echo_cmd "iptables -t nat -A POSTROUTING -o ${to_inter} -j MASQUERADE" # 这个记得之前应该好使啊????!!!!
+    echo_cmd "${IPTABLES} -t nat -A POSTROUTING -o ${to_inter} -j MASQUERADE" # 这个记得之前应该好使啊????!!!!
 
     # 设置一个dnat, 强制DNS使用1.1.1.1
     #这个不需要设置
