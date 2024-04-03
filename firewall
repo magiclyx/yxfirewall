@@ -7,7 +7,7 @@ SYSCFG_PATH='/etc/sysctl.conf'
 FILENAME_NAT='iptables'
 FILENAME_NAT6='iptables6'
 
-RULE_DIR='/etc/myrule'
+RULE_DIR='/etc/yuxi/firewall'
 CONFIG_FILE='/var/lib/yuxi/firewall.conf'
 
 DEBUG=true
@@ -1093,7 +1093,14 @@ function iptables_config()
       set_info_level "${info_level}"
     fi
 
-    mkdir -p "$(dirname ${CONFIG_FILE})"
+    local config_dir=$(dirname ${CONFIG_FILE})
+    if [ ! -d  "${config_dir}" ]; then
+        echo_err "DIR ${config_dir} not exist, try create one"
+        echo_cmd "mkdir -p ${config_dir}"
+        if [ ! -d  "${config_dir}" ]; then
+          echo_fatal "Failed to mkdir ${config_dir}"
+        fi
+    fi
 
     if [[ "${option}" == 'read' ]]; then
 
@@ -1302,7 +1309,7 @@ function iptables_save()
           echo_err "DIR ${RULE_DIR} not exist, try create one"
           echo_cmd "mkdir -p ${RULE_DIR}"
           if [ ! -d  "${RULE_DIR}" ]; then
-            echo_fatal "mkdir ${RULE_DIR} ..."
+            echo_fatal "Failed to mkdir ${RULE_DIR}"
           fi
       fi
 
@@ -2559,18 +2566,22 @@ function iptables_web()
 }
 
 
+# Use critical environment
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
 
-
+# Force root
 if [ "$(id -u)" -ne 0 ]; then
   echo_fatal "'${CMD} should run with root"
 fi
 
+# Read configuration
 info_level=$(iptables_config --read --key info.level)
 if [ -n "${info_level}" ]; then
   set_info_level "${info_level}"
 fi
 
 
+# Parse sub-command
 sub_cmd=$1
 shift
 if [[ -z ${sub_cmd} ]]; then
