@@ -1,21 +1,26 @@
 #!/bin/bash
 
 
-sudo ./firewall start 
+info_level_buckup=$(sudo ./firewall config --read --key info.level)
+sudo ./firewall config --write --key info.level --val debug
+
+
+sudo ./firewall start
 sudo ./firewall clear
 sudo ./firewall default DROP --all
-#sudo ./firewall nat --snat --lan enp0s8 --wan enp0s3
 sudo ./firewall nat --snat --from-inter enp0s8 --to-inter enp0s3 --log firewall-forward:
 sudo ./firewall save --log-input firewall-input-drop:
 
-echo ""
-echo ""
+
+echo -ne "\n\n"
 echo "####################################################################################################"
 sudo ./firewall filter --list
-# sudo ./firewall nat --list
-# sudo iptables -nvL
-# sudo iptables -t nat -nvL
+echo -ne "\n\n"
+sudo ./firewall nat --list
 
-#TODO
-# log
-# DEBUG output
+
+if [ -n "${info_level_buckup}" ]; then
+    sudo ./firewall config --write --key info.level --val "${info_level_buckup}"
+else
+    sudo ./firewall config --remove --key info.level
+fi

@@ -1,9 +1,6 @@
 #!/bin/bash
 
 
-CONFIG_FILE=/home/uvm1/Desktop/tmp.conf
-
-
 function os_type()
 {
 	
@@ -99,113 +96,273 @@ function _sed_escape() {
 
 function has_cfg_haskey()
 {
-	local key=$1
-	if [ -z ${key} ]; then
+
+	local file=
+	local key=
+
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--file )
+			shift
+			file=$1
+		;;
+
+		--key )
+			shift
+			key=$1
+		;;
+
+		*)
+			echo "Invalid optional ${1}"
+			exit 1
+		;;
+		esac
+		shift
+	done
+
+
+	if [ -z "${key}" ]; then
 		echo 'key is empty'
 		exit 1
 	fi
+
+	if [ -z "${file}" ]; then
+		echo 'file is empty'
+		exit 1
+	fi
+
 	
 	local fixkey=$(echo "${key}" | _sed_escape)
-	test -f "${CONFIG_FILE}" && grep -Eq "^\s*${fixkey}\s*=\s*.*$" "${CONFIG_FILE}" 
+	test -f "${file}" && grep -Eq "^\s*${fixkey}\s*=\s*.*$" "${file}" 
 }
 
 function read_cfg_key()
 {
-	local key=$1
-	if [ -z ${key} ]; then
+
+	local file=
+	local key=
+
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--file )
+			shift
+			file=$1
+		;;
+
+		--key )
+			shift
+			key=$1
+		;;
+
+		*)
+			echo "Invalid optional ${1}"
+			exit 1
+		;;
+		esac
+		shift
+	done
+
+	if [ -z "${key}" ]; then
 		echo 'key is empty'
 		exit 1
 	fi
-	
+
+	if [ -z "${file}" ]; then
+		echo 'file is empty'
+		exit 1
+	fi
+
+
 	local fixkey=$(echo "${key}" | _sed_escape)
-	test -f "${CONFIG_FILE}" && grep -E "^\s*${fixkey}\s*=\s*" "${CONFIG_FILE}" | sed -e  "s/[[:space:]]*${fixkey}[[:space:]]*=[[:space:]]*//g" | grep -o "[^ ]\+\( \+[^ ]\+\)*"
+	test -f "${file}" && grep -E "^\s*${fixkey}\s*=\s*" "${file}" | sed -e  "s/[[:space:]]*${fixkey}[[:space:]]*=[[:space:]]*//g" | grep -o "[^ ]\+\( \+[^ ]\+\)*"
 }
 
 function delete_cfg_key()
-{ # key
-	local key=$1
-	if [ -z ${key} ]; then
+{
+
+	local file=
+	local key=
+
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--file )
+			shift
+			file=$1
+		;;
+
+		--key )
+			shift
+			key=$1
+		;;
+
+		*)
+			echo "Invalid optional ${1}"
+			exit 1
+		;;
+		esac
+		shift
+	done
+
+
+	if [ -z "${key}" ]; then
 		echo 'key is empty'
 		exit 1
 	fi
 
+	if [ -z "${file}" ]; then
+		echo 'file is empty'
+		exit 1
+	fi
+
+
 	local fixkey=$(echo "${key}" | _sed_escape)
 	if [[ $(os_type) == 'osx' ]]; then
-		test -f "${CONFIG_FILE}" && sed -i "" "/^[[:space:]]*${fixkey}[[:space:]]*=.*$/d" "${CONFIG_FILE}"
+		test -f "${file}" && sed -i "" "/^[[:space:]]*${fixkey}[[:space:]]*=.*$/d" "${file}"
 	else
-		test -f "${CONFIG_FILE}" && sed -i "/^[[:space:]]*${fixkey}[[:space:]]*=.*$/d" "${CONFIG_FILE}"
+		test -f "${file}" && sed -i "/^[[:space:]]*${fixkey}[[:space:]]*=.*$/d" "${file}"
 	fi
 }
 
 function commentout_cfg_key()
-{ # key
-	local key=$1
-	if [ -z ${key} ]; then
+{
+    
+	local file=
+	local key=
+
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--file )
+			shift
+			file=$1
+		;;
+
+		--key )
+			shift
+			key=$1
+		;;
+
+		*)
+			echo "Invalid optional ${1}"
+			exit 1
+		;;
+		esac
+		shift
+	done
+
+
+	if [ -z "${key}" ]; then
 		echo 'key is empty'
 		exit 1
 	fi
+
+	if [ -z "${file}" ]; then
+		echo 'file is empty'
+		exit 1
+	fi
+
 	
 	local fixkey=$(echo "${key}" | _sed_escape)
 	if [[ $(os_type) == 'osx' ]]; then
-		test -f "${CONFIG_FILE}" && sed -i "" "s/^[[:space:]]*\(${fixkey}[[:space:]]*=.*\)$/#\1/g" "${CONFIG_FILE}"
+		test -f "${file}" && sed -i "" "s/^[[:space:]]*\(${fixkey}[[:space:]]*=.*\)$/#\1/g" "${file}"
 	else
-		test -f "${CONFIG_FILE}" && sed -i "s/^[[:space:]]*\(${fixkey}[[:space:]]*=.*\)$/#\1/g" "${CONFIG_FILE}"
+		test -f "${file}" && sed -i "s/^[[:space:]]*\(${fixkey}[[:space:]]*=.*\)$/#\1/g" "${file}"
 	fi
 }
 
 function wite_cfg_key()
-{ # key
-	local key=$1
-	if [ -z ${key} ]; then
-		echo 'key is empty'
+{
+
+	local file=
+	local key=
+	local val=
+
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--file )
+			shift
+			file=$1
+        ;;
+
+		--key )
+			shift
+			key=$1
+        ;;
+
+		--val )
+			shift
+			val=$1
+        ;;
+
+        *)
+			echo "Invalid optional ${1}"
+			exit 1
+        ;;
+		esac
+		shift
+	done
+
+
+    if [ -z "${key}" ]; then
+	    echo 'key is empty'
 		exit 1
 	fi
-	
-	local val=$2
-	if [ -z ${val} ]; then
-		echo 'value is empty'
+
+	if [ -z "${val}" ]; then
+	    echo 'val is empty'
 		exit 1
 	fi
-	
+
+	if [ -z "${file}" ]; then
+		echo 'file is empty'
+		exit 1
+	fi
+
+
 	local fixkey=$(echo "${key}" | _sed_escape)
-	if 	test -f "${CONFIG_FILE}" && grep -Eq "^\s*#?\s*${fixkey}\s*=.*$" "${CONFIG_FILE}"; then
-		if 	test -f "${CONFIG_FILE}" && grep -Eq "^\s*#?\s*${fixkey}\s*=\s*${val}\s*$" "${CONFIG_FILE}"; then
+	if test -f "${file}" &&  grep -Eq "^\s*${fixkey}\s*=\s*${val}\s*$" "${file}"; then # Testfile exist and text 'key = val' exist, do nothing ...
+		:
+	elif test -f "${file}" && grep -Eq "^\s*#\s*${fixkey}\s*=.*$" "${file}"; then #Test file exist and text '# key = xxx' exist
+		if 	grep -Eq "^\s*#\s*${fixkey}\s*=\s*${val}\s*$" "${file}"; then #Test exist '# key = val', remove '#' and format line.
 			if [[ $(os_type) == 'osx' ]]; then
-				sed -i "" "s/^[[:space:]]*#*[[:space:]]*${fixkey}[[:space:]]*=.*/${fixkey} = ${val}/g" "${CONFIG_FILE}"
+				sed -i "" "s/^[[:space:]]*#*[[:space:]]*${fixkey}[[:space:]]*=.*/${fixkey} = ${val}/g" "${file}"
 			else
-				sed -i "s/^[[:space:]]*#*[[:space:]]*${fixkey}[[:space:]]*=.*/${fixkey} = ${val}/g" "${CONFIG_FILE}"
+				sed -i "s/^[[:space:]]*#*[[:space:]]*${fixkey}[[:space:]]*=.*/${fixkey} = ${val}/g" "${file}"
 			fi
-		else
+		else # Text '# key=???' exist, append 'key = val' below.
 			if [[ $(os_type) == 'osx' ]]; then
+			    # 因为sed在OSX上的问题，这里不得不换行!!!
 				sed -i "" "/^[[:space:]]*#*[[:space:]]*${fixkey}[[:space:]]*=.*/ a\\
 				${fixkey} = ${val}\\
-				" "${CONFIG_FILE}"
+				" "${file}"
 			else
-				sed -i "/^[[:space:]]*#*[[:space:]]*${fixkey}[[:space:]]*=.*/ a ${fixkey} = ${val}" "${CONFIG_FILE}"
+				sed -i "/^[[:space:]]*#*[[:space:]]*${fixkey}[[:space:]]*=.*/ a ${fixkey} = ${val}" "${file}"
 			fi
 		fi
 	else
-		echo "${key} = ${val}" >> ${CONFIG_FILE}
+		echo "${key} = ${val}" >> "${file}"
 	fi	
 }
 
 
 
-#if has_cfg_haskey gg; then
-#	echo 'has key'
-#else
-#	echo 'not has key'
-#fi
+CONFIG_FILE=/home/uvm1/Desktop/tmp.conf
 
 
-#read_cfg_key ff[18]
+# if has_cfg_haskey --key gg --file "${CONFIG_FILE}" ; then
+# 	echo 'has key'
+# else
+# 	echo 'not has key'
+# fi
 
-#delete_cfg_key gg
 
-#commentout_cfg_key gg
+# read_cfg_key --key gg --file "${CONFIG_FILE}"
 
-#wite_cfg_key cc[13] 44
+# delete_cfg_key --key aa[11] --file "${CONFIG_FILE}"
 
-linux_type
+# commentout_cfg_key --key "aa[11]" --file "${CONFIG_FILE}"
+
+# wite_cfg_key  --key "cc[143]" --val 33 --file "${CONFIG_FILE}"
+
+# linux_type
 
 

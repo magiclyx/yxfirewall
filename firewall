@@ -4,30 +4,362 @@ CMD=$(basename $0)
 # LAN='enp0s8'
 # WAN='enp0s17'
 SYSCFG_PATH='/etc/sysctl.conf'
-RULE_DIR='/etc/myrule'
 FILENAME_NAT='iptables'
 FILENAME_NAT6='iptables6'
 
+RULE_DIR='/etc/myrule'
+CONFIG_FILE=/var/lib/yuxi/firewall.conf
+
 DEBUG=true
+# silent
+# error
+# debug
+INFO_SILENT=0
+INFO_FATAL=1
+INFO_ERROR=4
+INFO_WARNING=5
+INFO_NOTICE=7
+INFO_INFO=8
+INFO_DEBUG=9
+INFO_LEVEL=${INFO_ERROR} # default error
 
-function check_sys(){
 
-  local release=''
+####################################################################################################
+# OS-TYPE
+####################################################################################################
 
-  if [[ -n $(find /etc -name "redhat-release") ]] || grep </proc/version -q -i "centos"; then
-    release="centos"
-  elif grep </etc/issue -q -i "debian" && [[ -f "/etc/issue" ]] || grep </etc/issue -q -i "debian" && [[ -f "/proc/version" ]]; then
-    release="debian"
-  elif grep </etc/issue -q -i "ubuntu" && [[ -f "/etc/issue" ]] || grep </etc/issue -q -i "ubuntu" && [[ -f "/proc/version" ]]; then
-    release="ubuntu"
-  fi
+function os_type()
+{
+	
+	local release=''
+	
+	if [ -n "${OSTYPE}" ]; then
+		if [[ "${OSTYPE}" == "linux-gnu"* ]]; then
+			release="linux"
+		elif [[ "${OSTYPE}" == "bsd"* ]]; then 
+			release="bsd"
+		elif [[ "${OSTYPE}" == "freebsd"* ]]; then 
+			release="freebsd"
+		elif [[ "${OSTYPE}" == "darwin"* ]]; then 
+			release="osx"
+		elif [[ "${OSTYPE}" == "solaris"* ]]; then 
+			release="solaris"
+		elif [[ "${OSTYPE}" == "cygwin" ]]; then 
+			# POSIX compatibility layer and Linux environment emulation for Windows 
+			release="cygwin"
+		elif [[ "${OSTYPE}" == "msys" ]]; then 
+			# Lightweight shell and GNU utilities compiled for Windows (part of MinGW) 
+			release="msys"
+		elif [[ "${OSTYPE}" == "win32" ]]; then 
+			# I'm not sure this can happen. 
+			release="windows"
+		else 
+			release="unknown"
+		fi
+	else
+		
+		# $OSTAYPE not recognized by the older shells (such as Bourne shell).
+		# Use `uname` instead
+		
+		case $(uname | tr '[:upper:]' '[:lower:]') in
+			linux*)
+				release='linux'
+			;;
+			freebsd*)
+				release='freebsd'
+			;;
+			darwin*)
+				release="osx"
+			;;
+			SunOS*)
+				release="solaris"
+			;;
+			msys*)
+				release="msys"
+			;;
+			windows*)
+				release="windows"
+			;;
+			*)
+				release="unknown"
+			;;
+		esac
+	fi
+	
 
-  if [[ -z ${release} ]]; then
-    echo "unknown system"
-  else
-    echo "${release}"
-  fi
+	echo "${release}"
 }
+
+function linux_type()
+{
+    if [ "$(id -u)" -ne 0 ]; then
+      echo_fatal "should run with root"
+    fi
+
+    local release=
+	if [[ "${OSTYPE}" == "linux-gnu"* ]]; then
+		if [[ -n $(find /etc -name "redhat-release") ]] || grep </proc/version -q -i "centos"; then
+			release="centos"
+		elif grep </etc/issue -q -i "debian" && [[ -f "/etc/issue" ]] || grep </etc/issue -q -i "debian" && [[ -f "/proc/version" ]]; then
+			release="debian"
+		elif grep </etc/issue -q -i "ubuntu" && [[ -f "/etc/issue" ]] || grep </etc/issue -q -i "ubuntu" && [[ -f "/proc/version" ]]; then
+			release="ubuntu"
+		else
+			release="linux"
+		fi
+	else
+	    release="unknown"
+	fi
+
+    echo "${release}"
+}
+
+####################################################################################################
+# configuration
+####################################################################################################
+
+function _sed_escape() {
+	sed -e 's/[]\/$*.^[]/\\&/g'
+}
+
+
+function has_cfg_haskey()
+{
+
+	local file=
+	local key=
+
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--file )
+			shift
+			file=$1
+		;;
+
+		--key )
+			shift
+			key=$1
+		;;
+
+		*)
+			echo_fatal "Invalid optional ${1}"
+		;;
+		esac
+		shift
+	done
+
+
+	if [ -z "${key}" ]; then
+		echo_fatal 'key is empty'
+	fi
+
+	if [ -z "${file}" ]; then
+		echo_fatal 'file is empty'
+	fi
+
+	
+	local fixkey=$(echo "${key}" | _sed_escape)
+	test -f "${file}" && grep -Eq "^\s*${fixkey}\s*=\s*.*$" "${file}" 
+}
+
+function read_cfg_key()
+{
+
+	local file=
+	local key=
+
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--file )
+			shift
+			file=$1
+		;;
+
+		--key )
+			shift
+			key=$1
+		;;
+
+		*)
+			echo_fatal "Invalid optional ${1}"
+		;;
+		esac
+		shift
+	done
+
+	if [ -z "${key}" ]; then
+		echo_fatal 'key is empty'
+	fi
+
+	if [ -z "${file}" ]; then
+		echo_fatal 'file is empty'
+	fi
+
+
+	local fixkey=$(echo "${key}" | _sed_escape)
+	test -f "${file}" && grep -E "^\s*${fixkey}\s*=\s*" "${file}" | sed -e  "s/[[:space:]]*${fixkey}[[:space:]]*=[[:space:]]*//g" | grep -o "[^ ]\+\( \+[^ ]\+\)*"
+}
+
+function delete_cfg_key()
+{
+
+	local file=
+	local key=
+
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--file )
+			shift
+			file=$1
+		;;
+
+		--key )
+			shift
+			key=$1
+		;;
+
+		*)
+			echo_fatal "Invalid optional ${1}"
+		;;
+		esac
+		shift
+	done
+
+
+	if [ -z "${key}" ]; then
+		echo_fatal 'key is empty'
+	fi
+
+	if [ -z "${file}" ]; then
+		echo_fatal 'file is empty'
+	fi
+
+
+	local fixkey=$(echo "${key}" | _sed_escape)
+	if [[ $(os_type) == 'osx' ]]; then
+		test -f "${file}" && sed -i "" "/^[[:space:]]*${fixkey}[[:space:]]*=.*$/d" "${file}"
+	else
+		test -f "${file}" && sed -i "/^[[:space:]]*${fixkey}[[:space:]]*=.*$/d" "${file}"
+	fi
+}
+
+function commentout_cfg_key()
+{
+    
+	local file=
+	local key=
+
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--file )
+			shift
+			file=$1
+		;;
+
+		--key )
+			shift
+			key=$1
+		;;
+
+		*)
+			echo_fatal "Invalid optional ${1}"
+		;;
+		esac
+		shift
+	done
+
+
+	if [ -z "${key}" ]; then
+		echo_fatal 'key is empty'
+	fi
+
+	if [ -z "${file}" ]; then
+		echo_fatal 'file is empty'
+	fi
+
+	
+	local fixkey=$(echo "${key}" | _sed_escape)
+	if [[ $(os_type) == 'osx' ]]; then
+		test -f "${file}" && sed -i "" "s/^[[:space:]]*\(${fixkey}[[:space:]]*=.*\)$/#\1/g" "${file}"
+	else
+		test -f "${file}" && sed -i "s/^[[:space:]]*\(${fixkey}[[:space:]]*=.*\)$/#\1/g" "${file}"
+	fi
+}
+
+function write_cfg_key()
+{
+
+	local file=
+	local key=
+	local val=
+
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--file )
+			shift
+			file=$1
+    ;;
+
+		--key )
+			shift
+			key=$1
+    ;;
+
+		--val )
+			shift
+			val=$1
+    ;;
+
+    *)
+			echo_fatal "Invalid optional ${1}"
+    ;;
+		esac
+		shift
+	done
+
+
+  if [ -z "${key}" ]; then
+    echo_fatal 'key is empty'
+	fi
+
+	if [ -z "${val}" ]; then
+    echo_fatal 'val is empty'
+	fi
+
+	if [ -z "${file}" ]; then
+		echo_fatal 'file is empty'
+	fi
+
+
+	local fixkey=$(echo "${key}" | _sed_escape)
+	if test -f "${file}" &&  grep -Eq "^\s*${fixkey}\s*=\s*${val}\s*$" "${file}"; then # Testfile exist and text 'key = val' exist, do nothing ...
+		:
+	elif test -f "${file}" && grep -Eq "^\s*#\s*${fixkey}\s*=.*$" "${file}"; then #Test file exist and text '# key = xxx' exist
+		if 	grep -Eq "^\s*#\s*${fixkey}\s*=\s*${val}\s*$" "${file}"; then #Test exist '# key = val', remove '#' and format line.
+			if [[ $(os_type) == 'osx' ]]; then
+				sed -i "" "s/^[[:space:]]*#*[[:space:]]*${fixkey}[[:space:]]*=.*/${fixkey} = ${val}/g" "${file}"
+			else
+				sed -i "s/^[[:space:]]*#*[[:space:]]*${fixkey}[[:space:]]*=.*/${fixkey} = ${val}/g" "${file}"
+			fi
+		else # Text '# key=???' exist, append 'key = val' below.
+			if [[ $(os_type) == 'osx' ]]; then
+			    # 因为sed在OSX上的问题，这里不得不换行!!!
+				sed -i "" "/^[[:space:]]*#*[[:space:]]*${fixkey}[[:space:]]*=.*/ a\\
+				${fixkey} = ${val}\\
+				" "${file}"
+			else
+				sed -i "/^[[:space:]]*#*[[:space:]]*${fixkey}[[:space:]]*=.*/ a ${fixkey} = ${val}" "${file}"
+			fi
+		fi
+	else
+		echo "${key} = ${val}" >> "${file}"
+	fi	
+}
+
+####################################################################################################
+# Other YXLib
+####################################################################################################
+
 
 function yx_str_checkfmt()
 {
@@ -66,13 +398,13 @@ function ip_forward_v4()
   # 使用sed更改sysctl.conf中的ip_forward值
   #:echo_cmd
   echo_warn 'Set ipv4.ip_forward = 1 ...'
-  echo_msg "sed -i \"s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g\" \"${SYSCFG_PATH}\""
+  echo_info "sed -i \"s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g\" \"${SYSCFG_PATH}\""
   sed -i "s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g" "${SYSCFG_PATH}"
  
   #如果需要，立即应用更改
   #:echo_cmd
   echo_warn 'Make system configure enable...'
-  echo_msg "sysctl -p > /dev/null"
+  echo_info "sysctl -p > /dev/null"
   sysctl -p > /dev/null
 
   local result=0
@@ -89,9 +421,47 @@ function ip_forward_v4()
   fi
 }
 
+####################################################################################################
+# Logger
+####################################################################################################
 
-function echo_msg()
+function set_info_level()
 {
+  local info_level=$1
+  if [ -n "${info_level}" ]; then
+
+    if yx_str_checkfmt '^([0-9])+$' "${info_level}"; then
+      INFO_LEVEL=${info_level}
+    else
+      if [[ ${info_level} == 'silent' ]] || [[ ${info_level} == 'Silent' ]] || [[ ${info_level} == 'SILENT' ]]; then
+        INFO_LEVEL=${INFO_SILENT}
+      elif [[ ${info_level} == 'fatal' ]] || [[ ${info_level} == 'Fatal' ]] || [[ ${info_level} == 'FATAL' ]]; then
+        INFO_LEVEL=${INFO_FATAL}
+      elif [[ ${info_level} == 'error' ]] || [[ ${info_level} == 'Error' ]] || [[ ${info_level} == 'ERROR' ]]; then
+        INFO_LEVEL=${INFO_ERROR}
+      elif [[ ${info_level} == 'warning' ]] || [[ ${info_level} == 'Warning' ]] || [[ ${info_level} == 'WARNING' ]]; then
+        INFO_LEVEL=${INFO_WARNING}
+      elif [[ ${info_level} == 'notice' ]] || [[ ${info_level} == 'Notice' ]] || [[ ${info_level} == 'NOTICE' ]]; then
+        INFO_LEVEL=${INFO_NOTICE}
+      elif [[ ${info_level} == 'info' ]] || [[ ${info_level} == 'Info' ]] || [[ ${info_level} == 'INFO' ]]; then
+        INFO_LEVEL=${INFO_INFO}
+      elif [[ ${info_level} == 'debug' ]] || [[ ${info_level} == 'Debug' ]] || [[ ${info_level} == 'DEBUG' ]]; then
+        INFO_LEVEL=${INFO_DEBUG}
+      else
+        echo_fatal "Unknown info level:${info_level}"
+      fi
+    fi # end of 'if yx_str_checkfmt '^([0-9])+$' '
+
+  fi # end of 'if [ -n ${info_level} ]'
+}
+
+
+function echo_debug()
+{
+  if (( "${INFO_LEVEL}" < "${INFO_DEBUG}" )); then
+    return
+  fi
+
   local str=
 	if (( $# == 0 )) ; then
 		read -r -t 5 -d $'\0' str
@@ -103,18 +473,113 @@ function echo_msg()
   (>&1 echo "${str}")
 }
 
-    
-function echo_noti() { local blue=$(tput setaf 4); local reset=$(tput sgr0); (>&1 echo "${blue}${1}${reset}") }
-function echo_succ() { local green=$(tput setaf 2); local reset=$(tput sgr0); (>&1 echo "${green}${1}${reset}") }
-function echo_warn() { local yellow=$(tput setaf 3); local reset=$(tput sgr0); (>&2 echo "${yellow}${1}${reset}") }
-function echo_err() { local magenta=$(tput setaf 5); local reset=$(tput sgr0); (>&2 echo "${magenta}${1}${reset}") }
-function echo_fatal() { local red=$(tput setaf 1); local reset=$(tput sgr0); (>&2 echo "${red}Fatal:${1}${reset}"); exit 1; }
+# info
+function echo_info()
+{
+  if (( "${INFO_LEVEL}" < "${INFO_INFO}" )); then
+    return
+  fi
+
+  local str=
+	if (( $# == 0 )) ; then
+		read -r -t 5 -d $'\0' str
+#		num=`cat < /dev/stdin`
+	else
+		str="$*"
+	fi
+
+  local green=$(tput setaf 2);
+  local reset=$(tput sgr0);
+  (>&1 echo "${green}${str}${reset}")
+}
+
+ # notification   
+function echo_noti()
+{
+  if (( "${INFO_LEVEL}" < "${INFO_NOTICE}" )); then
+    return
+  fi
+
+  local str=
+	if (( $# == 0 )) ; then
+		read -r -t 5 -d $'\0' str
+#		num=`cat < /dev/stdin`
+	else
+		str="$*"
+	fi
+
+  local blue=$(tput setaf 4);
+  local reset=$(tput sgr0);
+  
+  (>&1 echo "${blue}${str}${reset}")
+}
+
+function echo_warn()
+{
+  if (( "${INFO_LEVEL}" < "${INFO_WARNING}" )); then
+    return
+  fi
+
+  local str=
+	if (( $# == 0 )) ; then
+		read -r -t 5 -d $'\0' str
+#		num=`cat < /dev/stdin`
+	else
+		str="$*"
+	fi
+
+  local yellow=$(tput setaf 3);
+  local reset=$(tput sgr0);
+
+  (>&2 echo "${yellow}${str}${reset}")
+}
+
+function echo_err()
+{
+  if (( "${INFO_LEVEL}" < "${INFO_ERROR}" )); then
+    return
+  fi
+
+  local str=
+	if (( $# == 0 )) ; then
+		read -r -t 5 -d $'\0' str
+#		num=`cat < /dev/stdin`
+	else
+		str="$*"
+	fi
+
+  local magenta=$(tput setaf 5);
+  local reset=$(tput sgr0);
+
+  (>&2 echo "${magenta}${str}${reset}")
+}
+
+function echo_fatal()
+{
+  if (( "${INFO_LEVEL}" < "${INFO_FATAL}" )); then
+    exit 1
+  fi
+
+  local str=
+	if (( $# == 0 )) ; then
+		read -r -t 5 -d $'\0' str
+#		num=`cat < /dev/stdin`
+	else
+		str="$*"
+	fi
+
+  local red=$(tput setaf 1);
+  local reset=$(tput sgr0);
+  
+  (>&2 echo "${red}Fatal:${str}${reset}");
+  exit 1;
+}
 
 # Can not handle 'pipe' and 'output redirect'
 # Use '#:echo_cmd' mark all not handle code place
 function echo_cmd()
 {
-  echo_msg "$@"
+  echo_info "$@"
   $@
 }
 
@@ -132,6 +597,10 @@ function analysis_cmd()
 	return $exit_code
 }
 
+
+####################################################################################################
+# usage
+####################################################################################################
 
 
 function usage() {
@@ -168,8 +637,14 @@ EOF
 
 function usage_clear() {
 cat <<EOF
-  usage: ${CMD} clear
+  usage: ${CMD} clear [--info-level xxx]
   Clear all settings.
+
+  The followint option are availiable:
+  --info-level     Command output level.
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
+                   It can be a number equal or great than 0.
+
 
   Other options
   Use '${CMD} --help' show all help information
@@ -179,8 +654,13 @@ EOF
 
 function usage_start() {
 cat <<EOF
-  usage: ${CMD} start
+  usage: ${CMD} start [--info-level xxx]
   Start the firewall service
+
+  The followint option are availiable:
+  --info-level     Command output level.
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
+                   It can be a number equal or great than 0.
 
   Other options
   Use '${CMD} --help' show all help information
@@ -190,8 +670,13 @@ EOF
 
 function usage_save() {
 cat <<EOF
-  usage: ${CMD} save
+  usage: ${CMD} save [-info-level xxx]
   Save the firewall change
+
+  The followint option are availiable:
+  --info-level     Command output level.
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
+                   It can be a number equal or great than 0.
 
   Other options
   Use '${CMD} --help' show all help information
@@ -209,14 +694,18 @@ cat <<EOF
   Show default police to specific filter table
 
   The following options are allowed:
-  --input|-i    add input chain to target
-  --output|-o   add output chain to target
-  --forward|-f  add forward chain to target
-  --all|-a      add all chain to target
+  --input    add input chain to target
+  --output   add output chain to target
+  --forward  add forward chain to target
+  --all      add all chain to target
 
-  --list|-l     show default police to specific filter table
+  --list     show default police to specific filter table
 
-  --help|-h     show this help information
+  --info-level     Command output level.
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
+                   It can be a number equal or great than 0.
+
+  -h|--help     show this help information
 
   Other options
   Use '${CMD} --help' show all help information
@@ -264,6 +753,10 @@ function usage_filter()
   
   --log            Record filter information.
 
+  --info-level     Command output level.
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
+                   It can be a number equal or great than 0.
+
   --help|-h        Show this help information
 
   Other options
@@ -288,6 +781,10 @@ cat <<EOF
 
   --log         Record log on forward request
 
+  --info-level     Command output level.
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
+                   It can be a number equal or great than 0.
+
   Other options
   Use '${CMD} --help' show all help information
 
@@ -305,6 +802,10 @@ cat <<EOF
   --client      Command work on outgoing connection.
   --port        Indicate the port number.
 
+  --info-level     Command output level.
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
+                   It can be a number equal or great than 0.
+
   Others:
   All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
   
@@ -320,8 +821,13 @@ EOF
 
 function usage_loopback() {
 cat <<EOF
-  usage: ${CMD} loopback <ACCEPT|DROP>
+  usage: ${CMD} loopback <ACCEPT|DROP> [-infolevel xxx]
   Fast command for loopback interface. It is '${CMD} filter''s wrapper command.
+
+
+  --info-level    Command output level.
+                  The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
+                  It can be a number equal or great than 0.
 
 
   Use '${CMD} filter --help' for more information.
@@ -341,6 +847,10 @@ cat <<EOF
   The followint options are allowed:
   --service     For incomming ping request package.
   --client      For outgoing ping request package.
+
+  --info-level  Command output level.
+                The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
+                It can be a number equal or great than 0.
 
   Others:
   All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
@@ -363,6 +873,10 @@ cat <<EOF
   --service     For ssh service request package.
   --client      For ssh client request package.
   --port        Indicate the port number. default port number is 22.
+
+  --info-level  Command output level.
+                The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
+                It can be a number equal or great than 0.
 
   Others:
   All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
@@ -387,6 +901,10 @@ cat <<EOF
   --service     For ssh service request package.
   --client      For ssh client request package.
   --port        Indicate the port number. default port number is 80.
+
+  --info-level  Command output level.
+                The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
+                It can be a number equal or great than 0.
 
   Others:
   All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
@@ -413,6 +931,10 @@ cat <<EOF
   --client      For ssh client request package.
   --port        Indicate the port number. default port number is 443.
 
+  --info-level  Command output level.
+                The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
+                It can be a number equal or great than 0.
+
   Others:
   All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
   
@@ -437,6 +959,10 @@ cat <<EOF
   --client      For ssh client request package.
   --port        Indicate the port number. default port number is 80,443.
 
+  --info-level  Command output level.
+                The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
+                It can be a number equal or great than 0.
+
   Others:
   All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
   
@@ -451,17 +977,187 @@ EOF
 }
 
 
+function usage_config() {
+cat <<EOF
+  usage: ${CMD} config <--read|--write|--list|--help> <optional>
+  'Show' or 'Change' ${CMD} config property
+
+  usage: ${CMD} config --help
+  Display this help information
+
+
+  The follow operation:
+  --read        Read specific config with 'key'
+  --write       Write config item with 'key' and 'val'
+  --remove      Remove a config item with 'key'
+  --list        List all config items
+  --help        Show this help information
+  
+  The following options are allowed:
+  --key         Name of a config property
+  --val         Value of a config property
+
+  The following additional options are allowed:
+  --info-level  Command output level.
+              The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
+              It can be a number equal or great than 0.
+
+  Other options
+  Use '${CMD} --help' show all help information
+
+EOF
+}
+
+
+####################################################################################################
+# iptables
+####################################################################################################
+
+function iptables_config()
+{
+    local option=
+    local key=
+    local val=
+
+    local show_help=false
+    local info_level=
+
+    while [ $# -gt 0 ]; do
+		case $1 in
+
+      --read )
+        option='read'
+      ;;
+
+      --write )
+        option='write'
+      ;;
+
+      --remove )
+        option='remove'
+      ;;
+
+      --list )
+        option='list'
+      ;;
+
+      --key )
+        shift
+        key=$1
+      ;;
+
+      --val )
+        shift
+        val=$1
+      ;;
+
+      --info-level )
+        shift
+        info_level=$1
+			;;
+
+			--help )
+				show_help=true
+			;;
+
+      *)
+        echo_fatal "Invalid optional ${1}"
+      ;;
+		esac
+		shift
+	done
+
+
+  if ${show_help}; then
+    usage_config
+    exit 0
+  else
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
+    mkdir -p "$(dirname ${CONFIG_FILE})"
+
+    if [[ "${option}" == 'read' ]]; then
+
+      if [[ -z ${key} ]]; then
+        echo_fatal "${CMD} --read config must provide key value, using --key"
+      fi
+
+      if [ -r "${CONFIG_FILE}" ]; then
+        read_cfg_key --file "${CONFIG_FILE}" --key "${key}"
+      fi
+
+    elif [[ "${option}" == 'write' ]]; then
+
+      if [[ -z ${key} ]]; then
+        echo_fatal "${CMD} --write must provide key property, using --key"
+      fi
+
+      if [[ -z ${val} ]]; then
+        echo_fatal "${CMD} --write must provide value property, using --val"
+      fi
+
+      write_cfg_key --file "${CONFIG_FILE}" --key "${key}" --val "${val}"
+    elif [[ "${option}" == 'remove' ]]; then
+
+      if [[ -z ${key} ]]; then
+        echo_fatal "${CMD} --read config must provide key value, using --key"
+      fi
+
+      if [ -w "${CONFIG_FILE}" ]; then
+        delete_cfg_key --file "${CONFIG_FILE}" --key "${key}"
+      fi
+
+    elif [[ "${option}" == 'list' ]]; then
+
+      if [ -r "${CONFIG_FILE}" ]; then
+        cat "${CONFIG_FILE}"
+      fi
+
+    else
+      echo_fatal "${CMD} config must provide one optional --read, --write or list "
+    fi
+
+  fi
+
+}
+
 function iptables_start()
 {
-  local option=$1
-  if [ -n "${option}" ]; then
-    if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
-      usage_start
-    else
-      echo_fatal "unknown optional \"${option}\""
-    fi
+  local show_help=false
+  local info_level=
+
+  while [ $# -gt 0 ]; do
+		case $1 in
+
+      --info-level )
+        shift
+        info_level=$1
+			;;
+
+			--help )
+				show_help=true
+			;;
+
+			*)
+        echo_fatal "Invalid optional ${1}, try '-h' or '--help' to show more information"
+      ;;
+		esac
+		shift
+	done
+
+
+  if ${show_help}; then
+    usage_start
+    exit 0
   else
-    local system=$(check_sys)
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
+    local system=$(linux_type)
     if [[ ${system} == "centos" || ${system} == "debian" ]]; then
       echo_warn 'Start iptables service...'
       echo_cmd "start iptables.service"
@@ -471,13 +1167,16 @@ function iptables_start()
     else
       :
     fi
+
   fi
+
 }
 
 function iptables_save()
 {
   
   local show_help=false
+  local info_level=
 
   local log_input=false
   local log_input_prefix=
@@ -490,22 +1189,27 @@ function iptables_save()
 		case $1 in
 
       --log-input )
+        shift
         log_input=true
 				log_input_prefix=$1
-        shift
 			;;
 
       --log-output )
+        shift
 				log_output=true
         log_output_prefix=$1
-        shift
 			;;
 
       --log-forward )
+        shift
 				log_forward=true
         log_forward_prefix=$1
-        shift
 			;;
+
+      --info-level )
+        shift
+        info_level=$1
+      ;;
 
 			--help )
 				show_help=$1
@@ -524,6 +1228,10 @@ function iptables_save()
     usage_save
     exit 0
   else
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
 
     input_optional=$(iptables_default --list --input)
 
@@ -544,7 +1252,7 @@ function iptables_save()
     fi
 
 
-    local system=$(check_sys)
+    local system=$(linux_type)
     if [[ ${system} == "centos" || ${system} == "debian" ]]; then
       echo_warn 'Save changes...'
       echo_cmd "service iptables save"
@@ -576,8 +1284,8 @@ function iptables_save()
       
       # Create launch script ...
       echo_warn "Create launch script ..."
-      echo -e "#!/bin/bash\niptables-restore < ${RULE_FILE}" | tee ${script_file_v4} | echo_msg
-      echo -e "#!/bin/bash\niptables-restore < ${RULE6_FILE}" | tee ${script_file_v6} | echo_msg
+      echo -e "#!/bin/bash\niptables-restore < ${RULE_FILE}" | tee ${script_file_v4} | echo_info
+      echo -e "#!/bin/bash\niptables-restore < ${RULE6_FILE}" | tee ${script_file_v6} | echo_info
       
     else
       :
@@ -605,16 +1313,41 @@ function iptables_save()
 
 function iptables_clear()
 {
-  local option=$1
-  if [ -n "${option}" ]; then
-    if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
-      usage_clear
-    else
-      echo_fatal "unknown optional \"${option}\""
-    fi
+  local show_help=false
+  local info_level=
+
+  while [ $# -gt 0 ]; do
+		case $1 in
+
+      --info-level )
+        shift
+        info_level=$1
+        ;;
+
+      --help )
+        show_help=true
+      ;;
+
+      *)
+        echo_fatal "Invalid optional ${1}, try '-h' or '--help' to show more information"
+        exit 1
+      ;;
+		esac
+		shift
+	done
+
+
+  if ${show_help}; then
+    usage_clear
+    exit 0
   else
 
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
     echo_warn 'Clear all rules...'
+
     echo_cmd "iptables -F"
     echo_cmd "iptables -X"
     echo_cmd "iptables -Z"
@@ -629,6 +1362,7 @@ function iptables_clear()
     echo_cmd "ip6tables -t nat -X"
     echo_cmd "ip6tables -t nat -Z"
   fi
+
 }
 
 function iptables_default()
@@ -638,52 +1372,71 @@ function iptables_default()
   local opt_forward=false
 
   local show=false
+
+  local show_help=false
+  local info_level=
+
   local option=$1
+  if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+    option="ACCEPT"
+    shift
+  elif [[ ${option} == 'disable' ]] || [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+    option="DROP"
+    shift
+  else
+    option=
+  fi
+
   # shift
   # if [ -z ${option} ]; then
   #   echo_fatal 'iptables_default need at least one params [DROP , ACCEPT]'
   # fi
 
-  if [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
-    option="ACCEPT"
-    shift
-  elif [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
-    option="DROP"
-    shift
-  elif [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
-    usage_default
-    exit 1
-  # else
-  #   echo_fatal "unknown optional \"${option}\""
-  fi
+  # if [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+  #   option="ACCEPT"
+  #   shift
+  # elif [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+  #   option="DROP"
+  #   shift
+  # elif [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
+  #   usage_default
+  #   exit 1
+  # # else
+  # #   echo_fatal "unknown optional \"${option}\""
+  # fi
 
   while [ $# -gt 0 ]; do
 		case $1 in
-			-i | --input )
+			--input )
         opt_input=true
 			;;
 
-			-o | --output )
+			--output )
         opt_output=true
 			;;
 
-			-f | --forward )
+			--forward )
         opt_forward=true
       ;;
 
-			-a | --all )
+			--all )
         opt_input=true
         opt_output=true
         opt_forward=true
 			;;
 
-			-l | --list )
+			--list )
         show=true
       ;;
 
+      --info-level )
+        shift
+        info_level=$1
+      ;;
+
+
 			-h | --help )
-        usage_default
-        exit 1
+        show_help=true
 			;;
 
 			*)
@@ -694,47 +1447,63 @@ function iptables_default()
 		shift
 	done
 
-  if ! ${show}; then
 
-    echo_warn 'Set default policy...'
-
-    if ${opt_input}; then
-      echo_cmd "iptables -P INPUT ${option}"
-    fi
-
-    if ${opt_output}; then
-      echo_cmd "iptables -P OUTPUT ${option}"
-    fi
-
-    if ${opt_forward}; then
-      echo_cmd "iptables -P FORWARD ${option}"
-    fi
-
-    # always drop ipv6
-    echo_cmd "ip6tables -P INPUT DROP"
-    echo_cmd "ip6tables -P OUTPUT DROP"
-    echo_cmd "ip6tables -P FORWARD DROP"
+  if ${show_help}; then
+    usage_default
+    exit 0
   else
 
-    if ${opt_input}; then
-       #:echo_cmd
-       echo_msg "iptables -L INPUT -nv | head --lines 1 | awk '{print $4}' | grep -o \"[^ ]\+\( \+[^ ]\+\)*\""
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
     fi
 
-    if ${opt_output}; then
-      #:echo_cmd
-      echo_warn 'Test OUTPUT default policy...'
-      echo_msg "iptables -L OUTPUT -nv | head --lines 1 | awk '{print $4}' | grep -o \"[^ ]\+\( \+[^ ]\+\)*\""
-      iptables -L OUTPUT -nv | head --lines 1 | awk '{print $4}' | grep -o "[^ ]\+\( \+[^ ]\+\)*"
-    fi
 
-    if ${opt_forward}; then
-      #:echo_cmd
-      echo_warn 'Test FORWARD default policy...'
-      echo_msg "iptables -L FORWARD -nv | head --lines 1 | awk '{print $4}' | grep -o \"[^ ]\+\( \+[^ ]\+\)*\""
-      iptables -L FORWARD -nv | head --lines 1 | awk '{print $4}' | grep -o "[^ ]\+\( \+[^ ]\+\)*"
+    if ! ${show}; then
+    
+      if [ -z ${option} ]; then
+        echo_fatal 'iptables default need at least one params [DROP , ACCEPT]'
+      fi
+
+      echo_warn 'Set default policy...'
+
+      if ${opt_input}; then
+        echo_cmd "iptables -P INPUT ${option}"
+      fi
+
+      if ${opt_output}; then
+        echo_cmd "iptables -P OUTPUT ${option}"
+      fi
+
+      if ${opt_forward}; then
+        echo_cmd "iptables -P FORWARD ${option}"
+      fi
+
+      # always drop ipv6
+      echo_cmd "ip6tables -P INPUT DROP"
+      echo_cmd "ip6tables -P OUTPUT DROP"
+      echo_cmd "ip6tables -P FORWARD DROP"
+    else
+
+      if ${opt_input}; then
+        #:echo_cmd
+        iptables -L INPUT -nv | head --lines 1 | awk '{print $4}' | grep -o "[^ ]\+\( \+[^ ]\+\)*"
+      fi
+
+      if ${opt_output}; then
+        #:echo_cmd
+        iptables -L OUTPUT -nv | head --lines 1 | awk '{print $4}' | grep -o "[^ ]\+\( \+[^ ]\+\)*"
+      fi
+
+      if ${opt_forward}; then
+        #:echo_cmd
+        iptables -L FORWARD -nv | head --lines 1 | awk '{print $4}' | grep -o "[^ ]\+\( \+[^ ]\+\)*"
+      fi
     fi
   fi
+
+
+
+
 
 }
 
@@ -766,7 +1535,11 @@ function iptables_filter()
   local log=false
   local log_prefix=$1
 
+  local info_level=
   local show=false
+
+  local show_help=false
+
   local option=$1
   if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
     option="ACCEPT"
@@ -774,9 +1547,8 @@ function iptables_filter()
   elif [[ ${option} == 'disable' ]] || [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
     option="DROP"
     shift
-  elif [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
-    usage_filter
-    exit 1
+  else
+    option=
   fi
 
 
@@ -872,6 +1644,15 @@ function iptables_filter()
         log_prefix=$1
 			;;
 
+      --info-level )
+        shift
+        info_level=$1
+      ;;
+
+      --help )
+        show_help=true
+      ;;
+
 			*)
         echo_fatal "Invalid optional ${1}, try '-h' or '--help' to show more information"
 				;;
@@ -880,187 +1661,199 @@ function iptables_filter()
 	done
 
 
-  if ${show}; then
-    iptables -nvL
+  if ${show_help}; then
+    usage_filter
     exit 0
   else
-    # interface
-    local output_interface_param=''
-    local input_interface_param=''
-    if [[ -n ${interface} ]]; then
-      output_interface_param=" -o ${interface}"
-      input_interface_param=" -i ${interface}"
-    elif [[ -n ${not_interface} ]]; then 
-      output_interface_param=" ! -o ${not_interface}"
-      input_interface_param=" ! -i ${not_interface}"
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
     fi
 
-    # protocol
-    local protocol_params=''
-    if [[ -n ${protocol} ]]; then
-      protocol_params=" -p ${protocol}"
-    fi
-
-    # protocol flag
-    local inflag_params=''
-    local outflag_params=''
-    if [[ ${protocol} == "icmp" ]]; then
-      if [[ -n ${inflag} ]]; then
-        inflag_params=" --icmp-type ${inflag}"
-      fi
-      if [[ -n ${outflag} ]]; then
-        outflag_params=" --icmp-type ${outflag}"
-      fi
-    else
-      if [[ -n ${inflag} ]]; then
-        echo_fatal "unknown --in-flag ${inflag} for protocol ${protocol}"
-      fi
-      if [[ -n ${outflag} ]]; then
-        echo_fatal "unknown --out-flag ${outflag} for protocol ${protocol}"
-      fi
-    fi
-
-    # Test -m limit params
-    # --limit_freq [6/second | 6/min | xx/hour 6/day]
-    local limit_params=''
-    if [[ -n ${limit_burst} ]] || [[ -n ${limit} ]] || [[ -n ${not_limit} ]]; then
-      limit_params=' -m limit'
-
-      # --limit
-      if [[ -n ${limit} ]]; then
-        if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|day)$' "${limit}"; then
-          limit_params="${limit_params} --limit ${limit}"
-        else
-          echo_fatal "\"${limit}\" is not a valid params for --freq"
-        fi
-      elif [[ -n ${not_limit} ]]; then
-        if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|day)$' "${not_limit}"; then
-          limit_params="${limit_params} ! --limit ${not_limit}"
-        else
-          echo_fatal "\"${not_limit}\" is not a valid params for --freq"
-        fi
-      fi
-      
-      # --limit-burst
-      if [[ -n ${limit_burst} ]]; then
-        if yx_str_checkfmt '^([0-9])+$' "${limit_burst}"; then
-          limit_params="${limit_params} --limit-burst ${limit_burst}"
-        else
-          echo_fatal "\"${limit_burst}\" is not a valid params for --limit"
-        fi
-      fi
-
-    fi
-
-
-    #indicate from ip-address or net-segment
-    local ip_from_params=''
-    if [[ -n ${ip_from} ]]; then
-        if yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}(/[0-3]?[0-9])?$' "${ip_from}"; then
-          ip_from_params=" -s ${ip_from}"
-        elif yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}-([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}$' "${ip_from}"; then
-          ip_from_params=" -m iprange --src-range ${ip_from}"
-        else
-          echo_fatal "\"${ip_from}\" is not a valid ip-address or net-setment"
-        fi
-    elif [[ -n ${ip_not_from} ]]; then
-        if yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}(/[0-3]?[0-9])?$' "${ip_not_from}"; then
-          ip_from_params=" !-s ${ip_not_from}"
-        elif yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}-([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}$' "${ip_not_from}"; then
-          ip_from_params=" -m iprange ! --src-range ${ip_not_from}"
-        else
-          echo_fatal "\"${ip_not_from}\" is not a valid ip-address or net-setment"
-        fi
-    fi
-
-    #indicate target ip-address or net-segment
-    local ip_to_params=''
-    if [[ -n ${ip_to} ]]; then
-        if yx_str_checkfmt '(\d{1,3}\.){3}\d{1,3}(/\d{1,3})?' "${ip_to}"; then
-          ip_to_params=" -d ${ip_to}"
-        elif yx_str_checkfmt '(\d{1,3}\.){3}\d{1,3}-(\d{1,3}\.){3}\d{1,3}' "${ip_to}"; then
-          ip_from_params=" -m iprange --dst-range ${ip_to}"
-        else
-          echo_fatal "\"${ip_to}\" is not a valid ip-address or net-setment"
-        fi
-    elif [[ -n ${ip_not_to} ]]; then
-        if yx_str_checkfmt '(\d{1,3}\.){3}\d{1,3}(/\d{1,3})?' "${ip_not_to}"; then
-          ip_to_params=" ! -d ${ip_not_to}"
-        elif yx_str_checkfmt '(\d{1,3}\.){3}\d{1,3}-(\d{1,3}\.){3}\d{1,3}' "${ip_not_to}"; then
-          ip_from_params=" -m iprange ! --dst-range ${ip_not_to}"
-        else
-          echo_fatal "\"${ip_not_to}\" is not a valid ip-address or net-setment"
-        fi
-    fi
-
-    local mac_params=''
-    if [[ -n ${mac} ]]; then
-      mac_params=" -m mac --mac-source ${mac}"
-    elif [[ -n ${not_mac} ]]; then
-      mac_params=" -m mac ! --mac-source ${not_mac}"
-    fi
-
-
-
-    if [[ -z ${inports} ]]  &&  [[ -z ${outports} ]]; then
-        if ${log}; then
-          if [[ -z ${log_prefix} ]]; then
-            log_prefix='Iptable-Forward:'
-          fi
-          
-          # Add filter log...
-          echo_warn 'Add filter log...'
-          echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j LOG --log-prefix ${log_prefix} --log-level 4"
-          echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j LOG --log-prefix ${log_prefix} --log-level 4"
-        fi
-        # Add filter rule...
-        echo_warn 'Add filter rule...'
-        echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${option}"
-        echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${option}"
+    if ${show}; then
+      echo_cmd "iptables -nvL"
+      exit 0
     else
 
-      if [[ -n ${inports} ]]; then
-        if ${log}; then
-          if [[ -z ${log_prefix} ]]; then
-            log_prefix='Iptable-Forward:'
-          fi
-          # Add filter incoming log...
-          echo_warn 'Add filter incoming log...'
-          echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${inports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
-        fi
-
-        # Add filter incoming rule...
-        echo_warn 'Add filter incoming rule...'
-        echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${inports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
-        echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport${limit_params} --sports ${inports}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
+      if [ -z ${option} ]; then
+        echo_fatal 'iptables filter need at least one params [DROP , ACCEPT]'
       fi
 
-      if [[ -n ${outports} ]]; then
-        if ${log}; then
-          if [[ -z ${log_prefix} ]]; then
-            log_prefix='Iptable-Forward:'
-          fi
-          # Add filter outgoing log...
-          echo_warn 'Add filter outgoing log...'
-          echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${outports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
-        fi
-
-        # Add filter outgoing rule...
-        echo_warn 'Add filter outgoing rule...'
-        echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${outports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
-        echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport${limit_params} --sports ${outports}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
+      # interface
+      local output_interface_param=''
+      local input_interface_param=''
+      if [[ -n ${interface} ]]; then
+        output_interface_param=" -o ${interface}"
+        input_interface_param=" -i ${interface}"
+      elif [[ -n ${not_interface} ]]; then 
+        output_interface_param=" ! -o ${not_interface}"
+        input_interface_param=" ! -i ${not_interface}"
       fi
 
-    fi # end of [[ -z ${inports} ]]  &&  [[ -z ${outports} ]]
+      # protocol
+      local protocol_params=''
+      if [[ -n ${protocol} ]]; then
+        protocol_params=" -p ${protocol}"
+      fi
+
+      # protocol flag
+      local inflag_params=''
+      local outflag_params=''
+      if [[ ${protocol} == "icmp" ]]; then
+        if [[ -n ${inflag} ]]; then
+          inflag_params=" --icmp-type ${inflag}"
+        fi
+        if [[ -n ${outflag} ]]; then
+          outflag_params=" --icmp-type ${outflag}"
+        fi
+      else
+        if [[ -n ${inflag} ]]; then
+          echo_fatal "unknown --in-flag ${inflag} for protocol ${protocol}"
+        fi
+        if [[ -n ${outflag} ]]; then
+          echo_fatal "unknown --out-flag ${outflag} for protocol ${protocol}"
+        fi
+      fi
+
+      # Test -m limit params
+      # --limit_freq [6/second | 6/min | xx/hour 6/day]
+      local limit_params=''
+      if [[ -n ${limit_burst} ]] || [[ -n ${limit} ]] || [[ -n ${not_limit} ]]; then
+        limit_params=' -m limit'
+
+        # --limit
+        if [[ -n ${limit} ]]; then
+          if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|day)$' "${limit}"; then
+            limit_params="${limit_params} --limit ${limit}"
+          else
+            echo_fatal "\"${limit}\" is not a valid params for --freq"
+          fi
+        elif [[ -n ${not_limit} ]]; then
+          if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|day)$' "${not_limit}"; then
+            limit_params="${limit_params} ! --limit ${not_limit}"
+          else
+            echo_fatal "\"${not_limit}\" is not a valid params for --freq"
+          fi
+        fi
+        
+        # --limit-burst
+        if [[ -n ${limit_burst} ]]; then
+          if yx_str_checkfmt '^([0-9])+$' "${limit_burst}"; then
+            limit_params="${limit_params} --limit-burst ${limit_burst}"
+          else
+            echo_fatal "\"${limit_burst}\" is not a valid params for --limit"
+          fi
+        fi
+
+      fi
 
 
-  fi # end of if ${show};
+      #indicate from ip-address or net-segment
+      local ip_from_params=''
+      if [[ -n ${ip_from} ]]; then
+          if yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}(/[0-3]?[0-9])?$' "${ip_from}"; then
+            ip_from_params=" -s ${ip_from}"
+          elif yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}-([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}$' "${ip_from}"; then
+            ip_from_params=" -m iprange --src-range ${ip_from}"
+          else
+            echo_fatal "\"${ip_from}\" is not a valid ip-address or net-setment"
+          fi
+      elif [[ -n ${ip_not_from} ]]; then
+          if yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}(/[0-3]?[0-9])?$' "${ip_not_from}"; then
+            ip_from_params=" !-s ${ip_not_from}"
+          elif yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}-([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}$' "${ip_not_from}"; then
+            ip_from_params=" -m iprange ! --src-range ${ip_not_from}"
+          else
+            echo_fatal "\"${ip_not_from}\" is not a valid ip-address or net-setment"
+          fi
+      fi
+
+      #indicate target ip-address or net-segment
+      local ip_to_params=''
+      if [[ -n ${ip_to} ]]; then
+          if yx_str_checkfmt '(\d{1,3}\.){3}\d{1,3}(/\d{1,3})?' "${ip_to}"; then
+            ip_to_params=" -d ${ip_to}"
+          elif yx_str_checkfmt '(\d{1,3}\.){3}\d{1,3}-(\d{1,3}\.){3}\d{1,3}' "${ip_to}"; then
+            ip_from_params=" -m iprange --dst-range ${ip_to}"
+          else
+            echo_fatal "\"${ip_to}\" is not a valid ip-address or net-setment"
+          fi
+      elif [[ -n ${ip_not_to} ]]; then
+          if yx_str_checkfmt '(\d{1,3}\.){3}\d{1,3}(/\d{1,3})?' "${ip_not_to}"; then
+            ip_to_params=" ! -d ${ip_not_to}"
+          elif yx_str_checkfmt '(\d{1,3}\.){3}\d{1,3}-(\d{1,3}\.){3}\d{1,3}' "${ip_not_to}"; then
+            ip_from_params=" -m iprange ! --dst-range ${ip_not_to}"
+          else
+            echo_fatal "\"${ip_not_to}\" is not a valid ip-address or net-setment"
+          fi
+      fi
+
+      local mac_params=''
+      if [[ -n ${mac} ]]; then
+        mac_params=" -m mac --mac-source ${mac}"
+      elif [[ -n ${not_mac} ]]; then
+        mac_params=" -m mac ! --mac-source ${not_mac}"
+      fi
 
 
 
+      if [[ -z ${inports} ]]  &&  [[ -z ${outports} ]]; then
+          if ${log}; then
+            if [[ -z ${log_prefix} ]]; then
+              log_prefix='Iptable-Forward:'
+            fi
+            
+            # Add filter log...
+            echo_warn 'Add filter log...'
+            echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j LOG --log-prefix ${log_prefix} --log-level 4"
+            echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j LOG --log-prefix ${log_prefix} --log-level 4"
+          fi
+          # Add filter rule...
+          echo_warn 'Add filter rule...'
+          echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${option}"
+          echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${option}"
+      else
 
+        if [[ -n ${inports} ]]; then
+          if ${log}; then
+            if [[ -z ${log_prefix} ]]; then
+              log_prefix='Iptable-Forward:'
+            fi
+            # Add filter incoming log...
+            echo_warn 'Add filter incoming log...'
+            echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${inports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
+          fi
+
+          # Add filter incoming rule...
+          echo_warn 'Add filter incoming rule...'
+          echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${inports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
+          echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport${limit_params} --sports ${inports}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
+        fi
+
+        if [[ -n ${outports} ]]; then
+          if ${log}; then
+            if [[ -z ${log_prefix} ]]; then
+              log_prefix='Iptable-Forward:'
+            fi
+            # Add filter outgoing log...
+            echo_warn 'Add filter outgoing log...'
+            echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${outports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
+          fi
+
+          # Add filter outgoing rule...
+          echo_warn 'Add filter outgoing rule...'
+          echo_cmd "iptables -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${outports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
+          echo_cmd "iptables -A INPUT${input_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport${limit_params} --sports ${outports}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
+        fi
+
+      fi # end of [[ -z ${inports} ]]  &&  [[ -z ${outports} ]]
+
+    fi # end of if ${show};
+
+  fi # end of if ${show_help}
 
 }
+
 
 function iptables_nat()
 {
@@ -1075,6 +1868,9 @@ function iptables_nat()
   local to_inter=
   local log=false
   local log_prefix=
+
+  local info_level=
+
 
 	while [ $# -gt 0 ]; do
 		case $1 in
@@ -1107,6 +1903,12 @@ function iptables_nat()
         log_prefix=$1
 			;;
 
+      --info-level )
+        shift
+        info_level=$1
+      ;;
+
+
 			*)
         usage_nat
 				exit
@@ -1120,6 +1922,11 @@ function iptables_nat()
     echo_cmd "iptables -t nat -nvL"
     exit 0
   elif ${snat}; then
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
 
     if ${dnat}; then
       echo_fatal "Can not set both '--snat' and '--dnat' in one command"
@@ -1170,8 +1977,17 @@ function iptables_nat()
     #sudo iptables -t nat -A PREROUTING -p udp --dport 53 -j DNAT --to 1.1.1.1
 
   elif ${dnat};then
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
     echo_fatal 'not implement !!!'
   else
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
     echo_fatal "One of '--snat' or '--dnat' must be set."
   fi
 
@@ -1179,17 +1995,6 @@ function iptables_nat()
 
 function iptables_port()
 {
-  local option=$1
-  shift
-  if [ -z ${option} ]; then
-    echo_fatal 'iptables port need at least one params [DROP , ACCEPT]'
-  fi
-
-  if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
-    usage_port
-    exit 1
-  fi
-
   local ports=
   local default_ports=
   local must_proto=
@@ -1197,8 +2002,23 @@ function iptables_port()
   local client=false
   local additional=''
 
+  local show_help=false
+  local info_level=
+
   # ignore params
   local protocol=
+
+  local option=$1
+  if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+    option="ACCEPT"
+    shift
+  elif [[ ${option} == 'disable' ]] || [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+    option="DROP"
+    shift
+  else
+    option=
+  fi
+
 
 	while [ $# -gt 0 ]; do
 		case $1 in
@@ -1240,6 +2060,16 @@ function iptables_port()
 				protocol=$1
 			;;
 
+      --info-level )
+        shift
+        info_level=$1
+      ;;
+
+      --help )
+          show_help=true
+      ;;
+
+
 			*)
         additional="${additional} $1"
       ;;
@@ -1247,49 +2077,62 @@ function iptables_port()
 		shift
 	done
 
-
-
-  if [[ -n ${protocol} ]]; then
-    if [[ -n ${must_proto} ]] && [[ ${protocol} != ${must_proto} ]]; then
-        echo_fatal "${CMD} port can not allow \"${protocol}\" protocol"
-    fi
+  if ${show_help}; then
+    usage_port
+    exit 0
   else
-    protocol=${must_proto}
-    if [[ -z ${protocol} ]]; then
-        echo_fatal "${CMD} port must provide \"--proto\" or \"--must-proto\" params"
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
     fi
-  fi
+
+    if [ -z ${option} ]; then
+      echo_fatal 'iptables port need at least one params [DROP , ACCEPT]'
+    fi
+
+    if [[ -n ${protocol} ]]; then
+      if [[ -n ${must_proto} ]] && [[ ${protocol} != ${must_proto} ]]; then
+          echo_fatal "${CMD} port can not allow \"${protocol}\" protocol"
+      fi
+    else
+      protocol=${must_proto}
+      if [[ -z ${protocol} ]]; then
+          echo_fatal "${CMD} port must provide \"--proto\" or \"--must-proto\" params"
+      fi
+    fi
 
 
-  if [[ -z ${ports} ]]; then
-    ports=${default_ports}
     if [[ -z ${ports} ]]; then
-      echo_fatal "${CMP} port must provide --ports params"
+      ports=${default_ports}
+      if [[ -z ${ports} ]]; then
+        echo_fatal "${CMP} port must provide --ports params"
+      fi
     fi
-  fi
 
 
-  if ${service}; then
-    iptables_filter ${option} --proto ${protocol} --in-port ${ports} ${additional}
-  elif ${client}; then
-    iptables_filter ${option} --proto ${protocol} --out-port ${ports} ${additional}
-  else
-    echo_fatal "${CMD} ping must at least indicate one of --service and --client optional"
+    if ${service}; then
+      iptables_filter ${option} --proto ${protocol} --in-port ${ports} ${additional}
+    elif ${client}; then
+      iptables_filter ${option} --proto ${protocol} --out-port ${ports} ${additional}
+    else
+      echo_fatal "${CMD} port must at least indicate one of --service and --client optional"
+    fi
   fi
 
 }
 
-function iptables_loopback(){
+function iptables_loopback()
+{
 
   local option=$1
-  shift
-  if [ -z ${option} ]; then
-    echo_fatal "${CMD} loopback need at least one params [DROP , ACCEPT]"
-  fi
-
-  if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
-    usage_loopback
-    exit 1
+  if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+    option="ACCEPT"
+    shift
+  elif [[ ${option} == 'disable' ]] || [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+    option="DROP"
+    shift
+  else
+    option=
   fi
 
 
@@ -1298,6 +2141,9 @@ function iptables_loopback(){
   # ignore params
   local interface=
   local not_interface=
+
+  local show_help=false
+  local info_level=
 
 	while [ $# -gt 0 ]; do
 		case $1 in
@@ -1312,6 +2158,16 @@ function iptables_loopback(){
 				not_interface=$1
 			;;
 
+      --info-level )
+        shift
+        info_level=$1
+        ;;
+
+      --help )
+        show_help=true
+      ;;
+
+
 			*)
         additional="${additional} $1"
       ;;
@@ -1319,41 +2175,59 @@ function iptables_loopback(){
 		shift
 	done
 
+  if ${show_help}; then
+    usage_loopback
+    exit 0
+  else
+     
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
 
-  if [[ -n ${interface} ]]  &&  [[ ${interface} != 'icmp' ]]; then
-    echo_fatal "${CMD} loopback can not allow \"${interface}\" interface"
+    if [ -z ${option} ]; then
+      echo_fatal 'iptables loopback need at least one params [DROP , ACCEPT]'
+    fi
+
+    if [[ -n ${interface} ]]  &&  [[ ${interface} != 'icmp' ]]; then
+      echo_fatal "${CMD} loopback can not allow \"${interface}\" interface"
+    fi
+
+    if [[ -n ${not_interface} ]]; then
+      echo_fatal "${CMD} loopback can not support --not-interface params"
+    fi
+
+    # iptables -A INPUT -i lo -j ACCEPT
+    # iptables -A OUTPUT -o lo -j ACCEPT
+    iptables_filter ${option} --interface lo
   fi
 
-  if [[ -n ${not_interface} ]]; then
-    echo_fatal "${CMD} loopback can not support --not-interface params"
-  fi
-
-
-  # iptables -A INPUT -i lo -j ACCEPT
-  # iptables -A OUTPUT -o lo -j ACCEPT
-  iptables_filter ${option} --interface lo
 }
 
-function iptables_ping() {
-
-  local option=$1
-  shift
-  if [ -z ${option} ]; then
-    echo_fatal 'iptables ping need at least one params [DROP , ACCEPT]'
-  fi
-
-  if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
-    usage_ping
-    exit 1
-  fi
-
+function iptables_ping()
+{
 
   local service=false
   local client=false
   local additional=''
 
+  local show_help=false
+  local info_level=
+
   # ignore params
   local protocol=
+
+
+  local option=$1
+  if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+    option="ACCEPT"
+    shift
+  elif [[ ${option} == 'disable' ]] || [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+    option="DROP"
+    shift
+  else
+    option=
+  fi
+
 
 	while [ $# -gt 0 ]; do
 		case $1 in
@@ -1370,6 +2244,15 @@ function iptables_ping() {
 				protocol=$1
 			;;
 
+      --info-level )
+        shift
+        info_level=$1
+        ;;
+
+      --help )
+        show_help=true
+      ;;
+
 			*)
         additional="${additional} $1"
       ;;
@@ -1378,89 +2261,278 @@ function iptables_ping() {
 	done
 
 
-  if [[ -n ${protocol} ]]  &&  [[ ${protocol} != 'icmp' ]]; then
-    echo_fatal "${CMD} pint can not allow \"${protocol}\" protocol"
-  fi
-
-
-  if ${service}; then
-    iptables_filter ${option} --proto icmp --in-flag echo-request --out-flag echo-reply ${additional}
-  elif ${client}; then
-    iptables_filter ${option} --proto icmp --out-flag echo-request --in-flag echo-reply ${additional}
+  if ${show_help}; then
+    usage_ping
+    exit 0
   else
-    echo_fatal "${CMD} ping must at least indicate one of --service and --client optional"
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
+
+    if [ -z ${option} ]; then
+      echo_fatal 'iptables XXX need at least one params [DROP , ACCEPT]'
+    fi
+
+    ## Others...
+    if [[ -n ${protocol} ]]  &&  [[ ${protocol} != 'icmp' ]]; then
+      echo_fatal "${CMD} pint can not allow \"${protocol}\" protocol"
+    fi
+
+    if ${service}; then
+      iptables_filter ${option} --proto icmp --in-flag echo-request --out-flag echo-reply ${additional}
+    elif ${client}; then
+      iptables_filter ${option} --proto icmp --out-flag echo-request --in-flag echo-reply ${additional}
+    else
+      echo_fatal "${CMD} ping must at least indicate one of --service and --client optional"
+    fi
   fi
 
 }
 
-function iptables_ssh() {
+
+function iptables_ssh()
+{
+
+  local additional=''
+  local show_help=false
+  local info_level=
+
   local option=$1
-  shift
-  if [ -z "${option}" ]; then
-    echo_fatal 'iptables ssh need at least one params [DROP , ACCEPT]'
+  if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+    option="ACCEPT"
+    shift
+  elif [[ ${option} == 'disable' ]] || [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+    option="DROP"
+    shift
+  else
+    option=
   fi
 
-  if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
+  while [ $# -gt 0 ]; do
+		case $1 in
+
+      --info-level )
+        shift
+        info_level=$1
+      ;;
+
+      --help )
+        show_help=true
+      ;;
+
+      *)
+        additional="${additional} $1"
+      ;;
+		esac
+		shift
+	done
+
+  if ${show_help}; then
     usage_ssh
-    exit 1
+    exit 0
+  else
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
+
+    if [ -z ${option} ]; then
+      echo_fatal 'iptables ssh need at least one params [DROP , ACCEPT]'
+    fi
+
+    iptables_port "${option}" --must-proto tcp --default-port 22 ${additional}
   fi
 
-  iptables_port "${option}" --must-proto tcp --default-port 22 "$@"
 }
 
 
-function iptables_http() {
+function iptables_http()
+{
+
+  local additional=''
+  local show_help=false
+  local info_level=
+
   local option=$1
-  shift
-  if [ -z "${option}" ]; then
-    echo_fatal 'iptables http need at least one params [DROP , ACCEPT]'
+  if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+    option="ACCEPT"
+    shift
+  elif [[ ${option} == 'disable' ]] || [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+    option="DROP"
+    shift
+  else
+    option=
   fi
 
-  if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
+
+  while [ $# -gt 0 ]; do
+		case $1 in
+
+      --info-level )
+        shift
+        info_level=$1
+      ;;
+
+      --help )
+        show_help=true
+      ;;
+
+      *)
+        additional="${additional} $1"
+      ;;
+		esac
+		shift
+	done
+
+
+  if ${show_help}; then
     usage_http
-    exit 1
+    exit 0
+  else
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
+    if [ -z ${option} ]; then
+      echo_fatal 'iptables http need at least one params [DROP , ACCEPT]'
+    fi
+
+    iptables_port "${option}" --must-proto tcp --default-port 80 ${additional}
   fi
 
-  iptables_port "${option}" --must-proto tcp --default-port 80 "$@"
 }
 
 
-function iptables_https() {
+function iptables_https()
+{
+  
+  local additional=''
+  local show_help=false
+  local info_level=
+
   local option=$1
-  shift
-  if [ -z "${option}" ]; then
-    echo_fatal 'iptables https need at least one params [DROP , ACCEPT]'
+  if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+    option="ACCEPT"
+    shift
+  elif [[ ${option} == 'disable' ]] || [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+    option="DROP"
+    shift
+  else
+    option=
   fi
 
-  if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
+
+  while [ $# -gt 0 ]; do
+		case $1 in
+
+      --info-level )
+        shift
+        info_level=$1
+      ;;
+
+      --help )
+        show_help=true
+      ;;
+
+      *)
+        additional="${additional} $1"
+      ;;
+		esac
+		shift
+	done
+
+
+  if ${show_help}; then
     usage_https
-    exit 1
+    exit 0
+  else
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
+    if [ -z ${option} ]; then
+      echo_fatal 'iptables https need at least one params [DROP , ACCEPT]'
+    fi
+
+    iptables_port "${option}" --must-proto tcp --default-port 443 ${additional}
   fi
 
-  iptables_port "${option}" --must-proto tcp --default-port 443 "$@"
 }
 
 
-function iptables_web() {
+function iptables_web()
+{
+
+  local additional=''
+  local show_help=false
+  local info_level=
+
   local option=$1
-  shift
-  if [ -z "${option}" ]; then
-    echo_fatal 'iptables web need at least one params [DROP , ACCEPT]'
+  if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+    option="ACCEPT"
+    shift
+  elif [[ ${option} == 'disable' ]] || [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+    option="DROP"
+    shift
+  else
+    option=
   fi
 
-  if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
-    usage_web
-    exit 1
+
+  while [ $# -gt 0 ]; do
+		case $1 in
+
+      --info-level )
+        shift
+        info_level=$1
+      ;;
+
+      --help )
+        show_help=true
+      ;;
+
+      *)
+        additional="${additional} $1"
+      ;;
+		esac
+		shift
+	done
+
+
+  if ${show_help}; then
+    usage_https
+    exit 0
+  else
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
+    if [ -z ${option} ]; then
+      echo_fatal 'iptables web need at least one params [DROP , ACCEPT]'
+    fi
+
+    iptables_port "${option}" --must-proto tcp --default-port 443,80 ${additional}
   fi
 
-  iptables_port "${option}" --must-proto tcp --default-port 443,80 "$@"
 }
 
-# echo_noti 'noti'
-# echo_succ 'succ'
-# echo_warn 'warn'
-# echo_err 'err'
-# echo_fatal 'fatal'
+
+
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo_fatal "'${CMD} should run with root"
+fi
+
+info_level=$(iptables_config --read --key info.level)
+if [ -n "${info_level}" ]; then
+  set_info_level "${info_level}"
+fi
 
 
 sub_cmd=$1
@@ -1471,70 +2543,33 @@ fi
 
 
 if [[ ${sub_cmd} == "start" ]]; then
-  if [ "$(id -u)" -ne 0 ]; then
-    echo_fatal "'${CMD} start' should run with root"
-  fi
   iptables_start $@
 elif [[ ${sub_cmd} == "clear" ]]; then
-  if [ "$(id -u)" -ne 0 ]; then
-    echo_fatal "'${CMD} clear' should run with root"
-  fi
   iptables_clear $@
 elif [[ ${sub_cmd} == "save" ]]; then
-  if [ "$(id -u)" -ne 0 ]; then
-    echo_fatal "'${CMD} save' should run with root"
-  fi
   iptables_save $@
 elif [[ ${sub_cmd} == "default" ]]; then
-  if [ "$(id -u)" -ne 0 ]; then
-    echo_fatal "'${CMD} default' should run with root"
-  fi
   iptables_default $@
 elif [[ ${sub_cmd} == "filter" ]]; then
-  if [ "$(id -u)" -ne 0 ]; then
-    echo_fatal "'${CMD} filter' should run with root"
-  fi
   iptables_filter $@
 elif [[ ${sub_cmd} == "nat" ]]; then
-  if [ "$(id -u)" -ne 0 ]; then
-    echo_fatal "'${CMD} nat' should run with root"
-  fi
   iptables_nat $@
 elif [[ ${sub_cmd} == "port" ]]; then
-  if [ "$(id -u)" -ne 0 ]; then
-    echo_fatal "'${CMD} port' should run with root"
-  fi
   iptables_port $@
 elif [[ ${sub_cmd} == "loopback" ]]; then
-  if [ "$(id -u)" -ne 0 ]; then
-    echo_fatal "'${CMD} loopback' should run with root"
-  fi
   iptables_loopback $@
 elif [[ ${sub_cmd} == "ping" ]]; then
-  if [ "$(id -u)" -ne 0 ]; then
-    echo_fatal "'${CMD} ping' should run with root"
-  fi
   iptables_ping $@
 elif [[ ${sub_cmd} == "ssh" ]]; then
-  if [ "$(id -u)" -ne 0 ]; then
-    echo_fatal "'${CMD} ssh' should run with root"
-  fi
   iptables_ssh $@
 elif [[ ${sub_cmd} == "http" ]]; then
-  if [ "$(id -u)" -ne 0 ]; then
-    echo_fatal "'${CMD} http' should run with root"
-  fi
   iptables_http $@
 elif [[ ${sub_cmd} == "https" ]]; then
-  if [ "$(id -u)" -ne 0 ]; then
-    echo_fatal "'${CMD} https' should run with root"
-  fi
   iptables_https $@
 elif [[ ${sub_cmd} == "web" ]]; then
-  if [ "$(id -u)" -ne 0 ]; then
-    echo_fatal "'${CMD} web' should run with root"
-  fi
   iptables_web $@
+elif [[ ${sub_cmd} == "config" ]]; then
+  iptables_config $@
 elif [[ ${sub_cmd} == "--help" ]] || [[ ${sub_cmd} == '-h' ]]; then
   usage
   exit 0
