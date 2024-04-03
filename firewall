@@ -8,7 +8,7 @@ FILENAME_NAT='iptables'
 FILENAME_NAT6='iptables6'
 
 RULE_DIR='/etc/myrule'
-CONFIG_FILE=/var/lib/yuxi/firewall.conf
+CONFIG_FILE='/var/lib/yuxi/firewall.conf'
 
 DEBUG=true
 # silent
@@ -670,10 +670,14 @@ EOF
 
 function usage_save() {
 cat <<EOF
-  usage: ${CMD} save [-info-level xxx]
+  usage: ${CMD} save [option] 
   Save the firewall change
 
   The followint option are availiable:
+  --log-input      Add INPUT log at the end of INPUT chain. --log-input 'prefix:'
+  --log-output     Add OUTPUT log at the end of OUTPUT chain. --log-output 'prefix:'
+  --log-forward    Add FORWARD log at the end of FORWARD chain. --log-forward 'prefix:'
+
   --info-level     Command output level.
                    The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
                    It can be a number equal or great than 0.
@@ -1237,8 +1241,8 @@ function iptables_save()
 
     if ${log_input}; then
 
-      if [ -z ${log_input_prefix} ]; then
-        log_input_prefix='Iptable-Input:'
+      if [ -z "${log_input_prefix}" ]; then
+        log_input_prefix="${CMD}-Drop-Input:"
       fi
 
       # iptables -N LAST_LOGGING
@@ -1249,6 +1253,27 @@ function iptables_save()
 
       echo_warn 'Add INPUT DROP Log ...'
       echo_cmd "iptables -A INPUT -j LOG --log-prefix ${log_input_prefix} --log-level 7"
+    fi
+
+    if ${log_output}; then
+
+      if [ -z "${log_output_prefix}" ]; then
+        log_output_prefix="${CMD}-Drop-Output:"
+      fi
+
+      echo_warn 'Add OUTPUT DROP Log ...'
+      echo_cmd "iptables -A OUTPUT -j LOG --log-prefix ${log_output_prefix} --log-level 7"
+    fi
+
+
+    if ${log_forward}; then
+
+      if [ -z "${log_forward_prefix}" ]; then
+        log_forward_prefix="${CMD}-Drop-Forward:"
+      fi
+
+      echo_warn 'Add FORWARD DROP Log ...'
+      echo_cmd "iptables -A FORWARD -j LOG --log-prefix ${log_forward_prefix} --log-level 7"
     fi
 
 
@@ -1800,7 +1825,7 @@ function iptables_filter()
       if [[ -z ${inports} ]]  &&  [[ -z ${outports} ]]; then
           if ${log}; then
             if [[ -z ${log_prefix} ]]; then
-              log_prefix='Iptable-Forward:'
+              log_prefix="${CMD}-Filter:"
             fi
             
             # Add filter log...
@@ -1817,7 +1842,7 @@ function iptables_filter()
         if [[ -n ${inports} ]]; then
           if ${log}; then
             if [[ -z ${log_prefix} ]]; then
-              log_prefix='Iptable-Forward:'
+              log_prefix="${CMD}-Incomming:"
             fi
             # Add filter incoming log...
             echo_warn 'Add filter incoming log...'
@@ -1833,7 +1858,7 @@ function iptables_filter()
         if [[ -n ${outports} ]]; then
           if ${log}; then
             if [[ -z ${log_prefix} ]]; then
-              log_prefix='Iptable-Forward:'
+              log_prefix="${CMD}-Outgoing:"
             fi
             # Add filter outgoing log...
             echo_warn 'Add filter outgoing log...'
@@ -1949,7 +1974,7 @@ function iptables_nat()
     # 允许初始网络包转发
     if ${log}; then
       if [[ -z ${log_prefix} ]]; then
-        log_prefix='Iptable-Forward:'
+        log_prefix="${CMD}-Forward:"
       fi
       
       # Add forwarding log
@@ -2576,6 +2601,3 @@ elif [[ ${sub_cmd} == "--help" ]] || [[ ${sub_cmd} == '-h' ]]; then
 else
   echo_fatal "Unknown sub command:'${sub_cmd}'. Use '${CMD} --help' to show document"
 fi
-
-
-
