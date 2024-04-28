@@ -104,11 +104,11 @@ function os_type()
 
 function linux_type()
 {
-    if [ "$(id -u)" -ne 0 ]; then
-      echo_fatal "should run with root"
-    fi
+  if [ "$(id -u)" -ne 0 ]; then
+    echo_fatal "should run with root"
+  fi
 
-    local release=
+  local release=
 	if [[ "${OSTYPE}" == "linux-gnu"* ]]; then
 		if [[ -n $(find /etc -name "redhat-release") ]] || grep </proc/version -q -i "centos"; then
 			release="centos"
@@ -409,13 +409,13 @@ function ip_forward_v4()
 
   # 使用sed更改sysctl.conf中的ip_forward值
   #:echo_cmd
-  echo_warn 'Set ipv4.ip_forward = 1 ...'
+  echo_noti 'Set ipv4.ip_forward = 1 ...'
   echo_info "sed -i \"s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g\" \"${SYSCFG_PATH}\""
   sed -i "s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g" "${SYSCFG_PATH}"
  
   #如果需要，立即应用更改
   #:echo_cmd
-  echo_warn 'Make system configure enable...'
+  echo_noti 'Make system configure enable...'
   echo_info "${SYSCTL} -p > /dev/null"
   "${SYSCTL}" -p > /dev/null
 
@@ -431,6 +431,107 @@ function ip_forward_v4()
   else
     return 1
   fi
+}
+
+function ip_from_inter()
+{
+	local inter=
+	if (( $# == 0 )) ; then
+		read -r -t 5 -d $'\0' inter
+#		num=`cat < /dev/stdin`
+	else
+		inter="$*"
+	fi
+
+  if [ -z "${inter}" ]; then
+    echo_fatal "inter is empty"
+  fi
+
+  local Local_Address=
+  if which ip > /dev/null; then
+  # try using `ip` command
+      Local_Address=$(ip addr show ${inter} | grep -w inet | awk '{print $2}')
+  else
+  # Some old platform, still using `ifconfig` command
+      Local_Address=$(ifconfig ${inter} | grep -w inet | awk '{print $2}')
+      if [ -n "${Local_Address}" ]; then
+          local lmask=$(ifconfig ${inter} | grep -w netmask | awk '{print $4}' | tr '[:lower:]' '[:upper:]' | grep -o "[^ ]\+\( \+[^ ]\+\)*")
+          local bitnum=0
+          if [[ "${lmask}" =~ ^0X[0-9A-F]{8}$ ]]; then
+          # in most linux platform, mask is a string split by '.'(255.255.255.0)
+              bitnum=$(echo "obase=2;ibase=16;${lmask:2}" | bc | grep -o '1' | wc -l | grep -o "[^ ]\+\( \+[^ ]\+\)*")
+          elif [[ "${lmask}" =~ ^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}(/[0-3]?[0-9])?$ ]]; then
+          # in OSX and some platform, mask is a hex number with '0x' prefix
+              mask_array=
+              IFS='.' read -r -a mask_array <<< "${lmask}"
+
+              for octet in "${mask_array[@]}"; do
+                  ((bitnum = bitnum + "$(echo "obase=2;ibase=10;${octet}"| bc | grep -o '1' | wc -l | grep -o "[^ ]\+\( \+[^ ]\+\)*")"))
+              done
+          fi
+
+          if [[ -n ${bitnum} ]]  &&  [[ ! "${bitnum}" -eq 0 ]]; then
+              Local_Address="${Local_Address}/${bitnum}"
+          fi
+
+      fi
+  fi
+
+  echo "${Local_Address}"
+}
+
+function strcontains()
+{
+	local str="$1"
+	local arr_str="$2"
+	local ignorecase=false
+	shift 
+	shift 
+	
+	while [ $# -gt 0 ]; do
+		case $1 in
+			
+			--ignorecase )
+				ignorecase=true
+			;;
+			
+			*)
+				echo "Invalid optional ${1}"
+			;;
+		esac
+		shift
+	done
+
+	
+	if ${ignorecase}; then
+		for e in $(echo ${arr_str:2}); do
+			[[ "${e^^}" == "${str^^}" ]] && return 0
+		done
+	else
+		for e in $(echo ${arr_str:2}); do
+			[[ "${e}" == "${str}" ]] && return 0
+		done
+	fi
+	
+	return 1
+}
+
+function fixstr()
+{
+	local str="$1"
+	local arr_str="$2"
+	shift
+	shift
+	
+	local fixstr=''
+	for element in $(echo ${arr_str:2}); do
+		if [[ "${element^^}" == "${str^^}" ]]; then
+			fixstr="${element}"
+			break
+		fi
+	done
+	
+	echo "${fixstr}"
 }
 
 ####################################################################################################
@@ -608,6 +709,568 @@ function analysis_cmd()
   echo "##############################################################################"
 	return $exit_code
 }
+
+
+####################################################################################################
+# limit
+####################################################################################################
+
+function _parse_limit()
+{
+	local limit_params=''
+	
+	local limit="$1"
+	local burst="$2"
+	
+	
+	if [[ -n ${burst} ]] || [[ -n ${limit} ]]; then
+		
+		limit_params=' -m limit'
+		
+		
+		# --limit
+		if [[ -n ${limit} ]]; then
+			if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|hour|day)$' "${limit}"; then
+				limit_params="${limit_params} --limit ${limit}"
+			else
+				echo_fatl "\"${limit}\" is not a valid params for --freq"
+			fi
+		fi
+		
+		# --limit-burst
+		if [[ -n ${burst} ]]; then
+			if yx_str_checkfmt '^([0-9])+$' "${burst}"; then
+				limit_params="${limit_params} --limit-burst ${burst}"
+			else
+				echo_fatal "\"${burst}\" is not a valid params for --limit"
+			fi
+		fi
+	fi
+	
+	echo "${limit_params}"
+}
+
+# <above/upto>:<limit>:[burst]:[name]:[mode]:[expire]:[gc]
+function _parse_limit2_old()
+{
+  local limitstr=$1
+
+  local limit_params=''
+  if [ -n "${limitstr}" ]; then
+    local control=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $1}')
+    local limit=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $2}')
+    local burst=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $3}')
+    local name=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $4}')
+    local mode=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $5}')
+    local srcmask=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $6}')
+    local dstmask=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $7}')
+    local expire=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $8}')
+    local gc=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $9}')
+
+    local above=
+    local upto=
+
+    if [ "${control}" == 'above' ]; then
+      above="${limit}"
+    elif [ "${control}" == 'upto' ]; then
+      upto="${limit}"
+    fi
+
+    if [ -n "${above}" ] || [ -n "${upto}" ]; then
+
+      if [ -z "${name}" ]; then
+
+        if [ -n "${upto}" ]; then
+
+          limit_params=' -m limit'
+
+          # --limit
+          if [[ -n ${upto} ]]; then
+            if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|hour|day)$' "${upto}"; then
+              limit_params="${limit_params} --limit ${upto}"
+            else
+              echo_fatl "\"${upto}\" is not a valid params for above"
+            fi
+          fi
+
+          # --limit-burst
+          if [[ -n ${burst} ]]; then
+            if yx_str_checkfmt '^([0-9])+$' "${burst}"; then
+              limit_params="${limit_params} --limit-burst ${burst}"
+            else
+              echo_fatal "\"${burst}\" is not a valid params for --limit"
+            fi
+          fi
+
+        elif [ -n "${above}" ]; then
+          echo_fatal "limit optional --above need --name params"
+        fi
+      else
+
+        limit_params=" -m hashlimit --hashlimit-name ${name}"
+
+        if [ -n "${upto}" ]; then
+          if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|hour|day)$' "${upto}"; then
+            limit_params="${limit_params} --hashlimit-upto ${upto}"
+          else
+            echo_fatl "\"${upto}\" is not a valid params for --upto"
+          fi
+        fi
+
+        if [ -n "${above}" ]; then
+          if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|hour|day)$' "${above}"; then
+            limit_params="${limit_params} --hashlimit-above ${above}"
+          else
+            echo_fatl "\"${above}\" is not a valid params."
+          fi
+        fi
+
+        if [ -n "${burst}" ]; then
+          if yx_str_checkfmt '^([0-9])+$' "${burst}"; then
+            limit_params="${limit_params} --hashlimit-burst ${burst}"
+          else
+            echo_fatal "\"${burst}\" is not a valid params"
+          fi
+        fi
+
+        if [ -n "${mode}" ]; then
+          if [ "${mode}" == 'srcip' ] || [ "${mode}" == 'srcport' ] || [ "${mode}" == 'dstip' ] || [ "${mode}" == 'dstport' ]; then
+            limit_params="${limit_params} --hashlimit-mode ${mode}"
+          else
+            echo_fatal "\"${mode}\" is not a valid params.mode must be following items:srcip,srcport,dstip,dstport. Mutiple item separate by comma(,)"
+          fi
+        fi
+
+        if [ -n "${srcmask}" ]; then
+          if [[ "${srcmask}" =~ ^[0-3][0-9]?$ ]]  &&  [ "${srcmask}" -le 32 ]; then
+            limit_params="${limit_params} --hashlimit-srcmask ${srcmask}"
+          else
+            echo_fatal "\"${srcmask}\" is not a valid params. srcmask must be between 0 and 32."
+          fi
+        fi
+
+        if [ -n "${dstmask}" ]; then
+          if [[ "${dstmask}" =~ ^[0-3][0-9]?$ ]]  &&  [ "${dstmask}" -le 32 ]; then
+            limit_params="${limit_params} --hashlimit-dstmask ${dstmask}"
+          else
+            echo_fatal "\"${dstmask}\" is not a valid params. dstmask must be between 0 and 32."
+          fi
+        fi
+
+        if [ -n "${expire}" ]; then
+          if [[ "${expire}" =~ ^[1-9][0-9]*$ ]]; then
+            limit_params="${limit_params} --hashlimit-htable-expire ${expire}"
+          else
+            echo_fatal "\"${expire}\" is not a valid params."
+          fi
+        fi
+
+        if [ -n "${gc}" ]; then
+          if [[ "${gc}" =~ ^[1-9][0-9]*$ ]]; then
+            limit_params="${limit_params} --hashlimit-htable-gcinterval ${gc}"
+          else
+            echo_fatal "\"${gc}\" is not a valid params."
+          fi
+        fi
+
+      fi ## end of [ -z "${name}" ]
+
+    fi
+
+  fi
+
+  echo "${limit_params}"
+}
+
+# <limit>:<limit val>:[burst]
+function _parse_limit_limit()
+{
+  local limitstr=$1
+  local limit=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $2}')
+  local burst=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $3}') 
+
+  local limit_params=''
+  if [ -n "${limit}" ]; then
+
+    limit_params=' -m limit'
+
+    # --limit
+    if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|hour|day)$' "${limit}"; then
+      limit_params="${limit_params} --limit ${limit}"
+    else
+      echo_fatl "\"${limit}\" is not a valid params for above"
+    fi
+
+
+    # --limit-burst
+    if [[ -n ${burst} ]]; then
+      if yx_str_checkfmt '^([0-9])+$' "${burst}"; then
+        limit_params="${limit_params} --limit-burst ${burst}"
+      else
+        echo_fatal "\"${burst}\" is not a valid params for --limit"
+      fi
+    fi
+
+  fi
+
+  echo "${limit_params}"
+}
+
+# <limit-above/limit-upto>:<name>:<limit val>:[burst]:[mode]:[srcmask]:[dstmask]:[expire]:[tc]
+function _parse_limit_hashlimit()
+{
+  local limitstr=$1
+  local control=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $1}')
+  local name=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $2}')
+  local limit=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $3}')
+  local burst=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $4}')
+  local mode=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $5}')
+  local srcmask=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $6}')
+  local dstmask=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $7}')
+  local expire=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $8}')
+  local gc=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $9}')
+
+  local above=
+  local upto=
+  if [ "${control}" == 'limit-above' ]; then
+    above="${limit}"
+  elif [ "${control}" == 'limit-upto' ]; then
+    upto="${limit}"
+  fi
+
+  local limit_params=''
+  if [ -n "${name}" ]; then
+
+    limit_params=" -m hashlimit --hashlimit-name ${name}"
+
+    if [ -n "${upto}" ]; then
+      if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|hour|day)$' "${upto}"; then
+        limit_params="${limit_params} --hashlimit-upto ${upto}"
+      else
+        echo_fatl "\"${upto}\" is not a valid params for --upto"
+      fi
+    fi
+
+    if [ -n "${above}" ]; then
+      if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|hour|day)$' "${above}"; then
+        limit_params="${limit_params} --hashlimit-above ${above}"
+      else
+        echo_fatl "\"${above}\" is not a valid params."
+      fi
+    fi
+
+    if [ -n "${burst}" ]; then
+      if yx_str_checkfmt '^([0-9])+$' "${burst}"; then
+        limit_params="${limit_params} --hashlimit-burst ${burst}"
+      else
+        echo_fatal "\"${burst}\" is not a valid params"
+      fi
+    fi
+
+    if [ -n "${mode}" ]; then
+      if [ "${mode}" == 'srcip' ] || [ "${mode}" == 'srcport' ] || [ "${mode}" == 'dstip' ] || [ "${mode}" == 'dstport' ]; then
+        limit_params="${limit_params} --hashlimit-mode ${mode}"
+      else
+        echo_fatal "\"${mode}\" is not a valid params.mode must be following items:srcip,srcport,dstip,dstport. Mutiple item separate by comma(,)"
+      fi
+    fi
+
+    if [ -n "${srcmask}" ]; then
+      if [[ "${srcmask}" =~ ^[0-3][0-9]?$ ]]  &&  [ "${srcmask}" -le 32 ]; then
+        limit_params="${limit_params} --hashlimit-srcmask ${srcmask}"
+      else
+        echo_fatal "\"${srcmask}\" is not a valid params. srcmask must be between 0 and 32."
+      fi
+    fi
+
+    if [ -n "${dstmask}" ]; then
+      if [[ "${dstmask}" =~ ^[0-3][0-9]?$ ]]  &&  [ "${dstmask}" -le 32 ]; then
+        limit_params="${limit_params} --hashlimit-dstmask ${dstmask}"
+      else
+        echo_fatal "\"${dstmask}\" is not a valid params. dstmask must be between 0 and 32."
+      fi
+    fi
+
+    if [ -n "${expire}" ]; then
+      if [[ "${expire}" =~ ^[1-9][0-9]*$ ]]; then
+        limit_params="${limit_params} --hashlimit-htable-expire ${expire}"
+      else
+        echo_fatal "\"${expire}\" is not a valid params."
+      fi
+    fi
+
+    if [ -n "${gc}" ]; then
+      if [[ "${gc}" =~ ^[1-9][0-9]*$ ]]; then
+        limit_params="${limit_params} --hashlimit-htable-gcinterval ${gc}"
+      else
+        echo_fatal "\"${gc}\" is not a valid params."
+      fi
+    fi
+  fi
+
+  echo "${limit_params}"
+}
+
+# <recent-set,remove,update,check>:<name>:<seconds>:[hitcount]:[src,dest,ttl]
+# src is default value
+function _parse_limit_recent()
+{
+  local limitstr=$1
+  local control=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $1}')
+  local name=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $2}')
+  local seconds=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $3}')
+  local hitcount=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $4}')
+  local optional=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $5}')
+
+
+  local limit_params=''
+  if [ -n "${name}" ] && [ -n "${control}" ]; then
+
+    limit_params=" -m recent"
+
+    control=${control#recent-}
+    local -a control_array
+    IFS=',' read -r -a control_array <<< "${control}"
+    for opt in "${control_array[@]}"; do
+      if [ "${opt}" == 'set' ]; then
+        limit_params="${limit_params} --set"
+      elif [ "${opt}" == 'remove' ]; then
+        limit_params="${limit_params} --remove"
+      elif [ "${opt}" == 'update' ]; then
+        limit_params="${limit_params} --update"
+      elif [ "${opt}" == 'check' ]; then
+        limit_params="${limit_params} --rcheck"
+      else
+        echo_fatal "Invalid limit optional. Unknown optional:${opt}"
+      fi
+    done
+
+
+    limit_params="${limit_params} --name ${name}"
+
+    if [ -n "${seconds}" ]; then
+      limit_params="${limit_params} --seconds ${seconds}"
+    fi
+
+    if [ -n "${hitcount}" ]; then
+      limit_params="${limit_params} --hitcount ${hitcount}"
+    fi
+
+
+    if [ -n "${optional}" ]; then
+      local -a optional_array
+      IFS=',' read -r -a optional_array <<< "${optional}"
+      for opt in "${optional_array[@]}"; do
+        if [ "${opt}" == 'src' ]; then
+          limit_params="${limit_params} --rsource"
+        elif [ "${opt}" == 'dest' ]; then
+          limit_params="${limit_params} --rdest"
+        elif [ "${opt}" == 'ttl' ]; then
+          limit_params="${limit_params} --rttl"
+        else
+          echo_fatal "Invalid limit optional. Unknown optional:${opt}"
+        fi
+      done
+    fi
+
+  fi
+
+  echo "${limit_params}"
+}
+
+# <length>:<length>
+function _parse_limit_length()
+{
+  local limitstr=$1
+  local length=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $2}')
+
+  local limit_params=''
+  if [ -n "${length}" ]; then
+    if [[ "${length}" =~ ^[0-9]+$ ]]; then
+      limit_params=" -m length --length ${length}"
+    else
+      echo_fatl "Invalid limit params:${length}"
+    fi
+  fi
+
+  echo "${limit_params}"
+}
+
+# <connect-above/connect-upto>:<limit>:[src/dest]:[mask]
+function _parse_limit_connection()
+{
+  local limitstr=$1
+  local control=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $1}')
+  local limit=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $2}')
+  local target=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $3}')
+  local mask=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $4}')
+
+  local limit_params=''
+  if [ -n "${limit}" ]; then
+
+    if [[ ! "${limit}" =~ ^[1-9][0-9]*$ ]]; then
+      echo_fatal "Invalid limit value:${limit}"
+    fi
+
+
+    limit_params='-m connlimit'
+    
+    if [ "${control}" == 'connect-above' ]; then
+      limit_params="${limit_params} --connlimit-above ${limit}"
+    elif [ "${control}" == 'connect-upto' ]; then
+      limit_params="${limit_params} --connlimit-upto ${limit}"
+    else
+      echo_fatal "Unknown limit params:${control}"
+    fi
+
+    if [ -n "${target}" ]; then
+      if [ "${target}" == 'src' ]; then
+        limit_params="${limit_params} --connlimit-saddr"
+      elif [ "${target}" == 'dest' ]; then
+        limit_params="${limit_params} --connlimit-daddr"
+      else
+        echo_fatal "Unknown limit target:${target}"
+      fi
+    fi
+
+    if [ -n "${mask}" ]; then
+      # for ipv4, 0<=mask<=32. for ipv6, 0<=mask<=128
+      # do not support ipv6
+      if [[ ${mask} =~ ^[1-9][0-9]*$ ]] && [ "${mask}" -le 32 ]; then
+        limit_params="${limit_params} --connlimit-mask ${mask}"
+      fi
+    fi
+
+  fi # end of if [ -n "${limit}" ]; then
+
+  echo "${limit_params}"
+}
+
+# <time>:<starttime>:<endtime>:<weekdays>:<monthdays>
+function _parse_limit_time()
+{
+  local limitstr=$1
+  local start_time=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $2}')
+  local end_time=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $3}')
+  local weekdays=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $4}')
+  local monthdays=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $5}')
+
+  local limit_params=''
+
+  if [ -n "${start_time}" ] && [ -n "${end_time}" ] || [ -n "${weekdays}" ] || [ -n "${monthdays}" ]; then
+
+    limit_params='-m time'
+
+    # <starttime>:<endtime>
+    if [ -n "${start_time}" ] && [ -n "${end_time}" ]; then
+
+      start_time=$(echo "${start_time}" | tr '#' ':')
+      end_time=$(echo "${end_time}" | tr '#' ':')
+
+      time_val=()
+      for time in $(echo "${start_time} ${end_time}"); do
+        if [[ ! "${time}" =~ ^[0-2][0-9]:[0-5][0-9](:[0-5][0-9])?$ ]]; then
+          echo_fatal "Invalid time format:${time}"
+        fi
+
+        hh=$(echo "${time}" | awk 'BEGIN{FS=":"}{print $1}')
+        mm=$(echo "${time}" | awk 'BEGIN{FS=":"}{print $2}')
+        ss=$(echo "${time}" | awk 'BEGIN{FS=":"}{print $3}')
+        if [ -z "${ss}" ]; then
+          ss='00'
+        fi
+	
+        time_val=(${time_val[@]} "${hh}${mm}${ss}")
+      done
+
+      limit_params="${limit_params} --timestart ${start_time}"
+      limit_params="${limit_params} --timestop ${end_time}"
+
+      # --contiguous
+      if [ "${time_val[0]}" -gt "${time_val[1]}" ]; then
+        limit_params="${limit_params} --contiguous"
+      fi
+
+    fi # end of  if [ -n "${start_time}" ] && [ -n "${end_time}" ];
+
+    # <weekdays>
+    if [ -n "${weekdays}" ]; then
+      local fix_weekdays=$(fixstr "${weekdays}" "Mon Tue Wed Thu Fri Sat Sun 1 2 3 4 5 6 7")
+      if [ -n "${fix_weekdays}" ]; then
+        limit_params="${limit_params} --weekdays ${fix_weekdays}"
+      else
+        echo_fatal "Invalid weekdays format:${weekdays}"
+      fi
+    fi
+
+    # <monthdays>
+    if [ -n "${monthdays}" ]; then
+      if [ "${monthdays}" -ge 1 ] && [ "${monthdays}" -le 31 ]; then
+        limit_params="${limit_params} --monthdays ${monthdays}"
+      fi
+    fi
+
+    #kerneltz
+    limit_params="${limit_params} --kerneltz"
+  fi
+
+
+}
+
+function _parse_limit2()
+{
+  local limitstr=$1
+  local module=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $1}')
+
+  if [ "${module}" == 'limit' ]; then
+    _parse_limit_limit "${limitstr}"
+  elif [ "${module}" == 'limit-above' ]  ||  [ "${module}" == 'limit-upto' ]; then
+    _parse_limit_hashlimit "${limitstr}"
+  elif [ "${module}" == 'length' ]; then
+    _parse_limit_length "${limitstr}"
+  elif [ "${module}" == 'connect' ]; then
+    _parse_limit_connection "${limitstr}"
+  elif [ "${module}" == 'time' ]; then
+    _parse_limit_time "${limitstr}"
+  elif [[ "${module}" =~ ^recent-.+$ ]]; then
+  # elif [ "${module}" == 'recent-set' ] || [ "${module}" == 'recent-remove' ] || [ "${module}" == 'recent-update' ] || [ "${module}" == 'recent-check' ]; then
+    _parse_limit_recent "${limitstr}"
+  fi
+}
+
+# function _pre_handle_limit()
+# {
+#   # local limitstr=$1
+#   local module=
+#   local name=
+
+#   while [ $# -gt 0 ]; do
+# 		case $1 in
+# 		-m )
+# 			shift
+#       module=$1
+# 		;;
+
+# 		--name )
+# 			shift
+# 			name=$1
+# 		;;
+
+# 		*)
+#       :
+# 		;;
+# 		esac
+# 		shift
+# 	done
+
+#   if [ -n "${module}" ]
+#     if [[ "${module}" =~ ^recent-.+$ ]]; then
+#       if [ -n "${name}" ]  &&  [ ! -f "/proc/net/xt_recent/${name}" ]; then
+#         :
+#       fi
+#     fi
+#   fi
+# }
 
 
 ####################################################################################################
@@ -848,8 +1511,11 @@ cat <<EOF
 
   Use '${CMD} filter --help' for more information.
 
+
   Other options
   Use '${CMD} --help' show all help information
+
+  NOTE: In this command, you should ignore '--interface' and '--not-interface' optional.
 
 EOF
 }
@@ -1017,6 +1683,9 @@ cat <<EOF
   --info-level  Command output level.
               The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
               It can be a number equal or great than 0.
+  
+  Support comfiguration items:
+  info.level    Debug level. Same as --info-level optional, But work on gobal.
 
   Other options
   Use '${CMD} --help' show all help information
@@ -1182,7 +1851,7 @@ function iptables_start()
 
     local system=$(linux_type)
     if [[ ${system} == "centos" || ${system} == "debian" ]]; then
-      echo_warn 'Start iptables service...'
+      echo_noti 'Start iptables service...'
       echo_cmd "start iptables.service"
       echo_cmd "enable iptables.service"
     elif [[ ${system} == "ubuntu" ]]; then
@@ -1269,7 +1938,7 @@ function iptables_save()
       # iptables -A LAST_LOGGING -j LOG --log-prefix "${log_input_prefix}" --log-level 7
       # iptables -A LAST_LOGGING -j DROP
 
-      echo_warn 'Add INPUT DROP Log ...'
+      echo_noti 'Add INPUT DROP Log ...'
       echo_cmd "${IPTABLES} -A INPUT -j LOG --log-prefix ${log_input_prefix} --log-level 7"
     fi
 
@@ -1279,7 +1948,7 @@ function iptables_save()
         log_output_prefix="${CMD}-Drop-Output:"
       fi
 
-      echo_warn 'Add OUTPUT DROP Log ...'
+      echo_noti 'Add OUTPUT DROP Log ...'
       echo_cmd "${IPTABLES} -A OUTPUT -j LOG --log-prefix ${log_output_prefix} --log-level 7"
     fi
 
@@ -1290,17 +1959,17 @@ function iptables_save()
         log_forward_prefix="${CMD}-Drop-Forward:"
       fi
 
-      echo_warn 'Add FORWARD DROP Log ...'
+      echo_noti 'Add FORWARD DROP Log ...'
       echo_cmd "${IPTABLES} -A FORWARD -j LOG --log-prefix ${log_forward_prefix} --log-level 7"
     fi
 
 
     local system=$(linux_type)
     if [[ ${system} == "centos" || ${system} == "debian" ]]; then
-      echo_warn 'Save changes...'
+      echo_noti 'Save changes...'
       echo_cmd "service iptables save"
 
-      echo_warn 'Restart iptables services...'
+      echo_noti 'Restart iptables services...'
       echo_cmd "service iptables stop"
       echo_cmd "service iptables start"
     elif [[ ${system} == "ubuntu" ]]; then
@@ -1321,12 +1990,12 @@ function iptables_save()
       local script_file_v6="/etc/network/if-pre-up.d/${FILENAME_NAT6}"
 
       # Create iptables rule file ...
-      echo_warn "Create iptables rule file ..."
+      echo_noti "Create iptables rule file ..."
       echo_cmd "${IPTABLES_SAVE} --file ${RULE_FILE}"
       echo_cmd "${IP6TABLES_SAVE} --file ${RULE6_FILE}"
       
       # Create launch script ...
-      echo_warn "Create launch script ..."
+      echo_noti "Create launch script ..."
       echo -e "#!/bin/bash\n${IPTABLES_RESTORE} < ${RULE_FILE}" | tee ${script_file_v4} | echo_info
       echo -e "#!/bin/bash\n${IP6TABLES_RESTORE} < ${RULE6_FILE}" | tee ${script_file_v6} | echo_info
       
@@ -1389,7 +2058,7 @@ function iptables_clear()
       set_info_level "${info_level}"
     fi
 
-    echo_warn 'Clear all rules...'
+    echo_noti 'Clear all rules...'
 
     echo_cmd "${IPTABLES} -F"
     echo_cmd "${IPTABLES} -X"
@@ -1507,7 +2176,7 @@ function iptables_default()
         echo_fatal 'iptables default need at least one params [DROP , ACCEPT]'
       fi
 
-      echo_warn 'Set default policy...'
+      echo_noti 'Set default policy...'
 
       if ${opt_input}; then
         echo_cmd "${IPTABLES} -P INPUT ${option}"
@@ -1549,6 +2218,1143 @@ function iptables_default()
 
 
 }
+
+
+function iptables_wrapper()
+{
+
+  local chain=
+
+  local interface_in=
+  local interface_out=
+  local not_interface_in=
+  local not_interface_out=
+
+  #local protocol='all' #default protocol
+  local protocol=
+  local protocol_flag=
+
+  local mac=
+  local not_mac=
+
+  local ip_from=
+  local ip_to=
+  local not_ip_from=
+  local not_ip_to=
+
+  local port_from=
+  local port_to=
+
+  local fragment=
+  local not_fragment=
+
+  local state=
+
+  local limitstr=
+  local logstr=
+
+
+  local info_level=
+  local show=false
+
+  local show_help=false
+
+  local additional=
+
+  local option=$1
+  if ! [[ "${option}" =~ ^-.*$ ]]; then
+    shift
+
+    if [[ ${option} == 'enable' ]] || [[ ${option} == 'Enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+      option="ACCEPT"
+    elif [[ ${option} == 'disable' ]] || [[ ${option} == 'Disable' ]] || [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+      option="DROP"
+    elif [[ ${option} == 'return' ]] || [[ ${option} == 'Return' ]] || [[ ${option} == 'RETURN' ]]; then
+      option="RETURN"
+    elif [[ ${option} == 'log' ]] || [[ ${option} == 'Log' ]] || [[ ${option} == 'LOG' ]]; then
+      option="LOG"
+    elif [[ ${option} == 'reject' ]] || [[ ${option} == 'Reject' ]] || [[ ${option} == 'REJECT' ]]; then
+      option="REJECT"
+    elif [[ ${option} == 'reject-with' ]] || [[ ${option} == 'Reject-with' ]] || [[ ${option} == 'REJECT-WITH' ]]; then
+      option="REJECT"
+      local reject_value=$1
+      if ! [[ "${reject_value}" =~ ^-.*$ ]]; then
+        shift
+        option="${option} --reject-with ${reject_value}"
+      fi
+    else
+      : # custom option
+    fi
+
+  else
+    option=
+  fi
+
+
+
+  local cursor=
+	while [ $# -gt 0 ]; do
+
+		case $1 in
+
+			--chain )
+        cursor=$1
+				shift
+				chain=$1
+			;;
+
+      --fragment )
+        cursor=$1
+        fragment=$1
+      ;;
+
+      --not-fragment )
+        cursor=$1
+        not_fragment=$1
+      ;;
+
+      --interface-in )
+        cursor=$1
+				shift
+        interface_in=$1
+			;;
+
+      --interface-out )
+        cursor=$1
+				shift
+        interface_out=$1
+			;;
+
+      --not-interface-in )
+        cursor=$1
+				shift
+        not_interface_in=$1
+			;;
+
+      --not-interface-out )
+        cursor=$1
+				shift
+        not_interface_out=$1
+			;;
+
+			--proto )
+        cursor=$1
+				shift
+				protocol=$1
+			;;
+
+			--proto-flag )
+        cursor=$1
+				shift
+        protocol_flag=$1
+			;;
+
+      --mac )
+        cursor=$1
+				shift
+        mac=$1
+      ;;
+
+      --notmac )
+        cursor=$1
+				shift
+        not_mac=$1
+      ;;
+
+      --ip-from )
+        cursor=$1
+				shift
+        ip_from=$1
+      ;;
+
+      --not-ip-from )
+        cursor=$1
+				shift
+        not_ip_from=$1
+      ;;
+
+      --ip-to )
+        cursor=$1
+				shift
+        ip_to=$1
+      ;;
+
+      --not-ip-to )
+        cursor=$1
+				shift
+        not_ip_to=$1
+      ;;
+
+      --port-from )
+        cursor=$1
+				shift
+        port_from=$1
+      ;;
+
+      --port-to )
+        cursor=$1
+				shift
+        port_to=$1
+      ;;
+
+      --limit )
+        cursor=$1
+				shift
+        limitstr=$1
+      ;;
+
+      --state )
+        cursor=$1
+        shift
+        state=$1
+      ;;
+
+      --list )
+        cursor=$1
+        show=true
+      ;;
+
+      --log )
+        cursor=$1
+        shift
+        logstr=$1
+			;;
+
+      --info-level )
+        cursor=$1
+        shift
+        info_level=$1
+      ;;
+
+      --help )
+        cursor=$1
+        show_help=true
+      ;;
+
+			*)
+        if [[ "${cursor}" == '--proto' ]] && [ "${protocol}" == 'tcp' ] && [ $1 == '--syn' ]; then
+          protocol="${protocol} $1"
+        elif [[ "${cursor}" == '--proto-flag' ]]; then
+          protocol_flag="${protocol_flag} $1"
+        else
+          additional="${additional} $1"
+        fi
+				;;
+		esac
+		shift
+	done
+
+
+
+  if ${show_help}; then
+    usage_filter
+    exit 0
+  else
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
+    if ${show}; then
+      echo_cmd "iptables -nvL"
+      exit 0
+    else
+
+      # if [ -z "${option}" ]; then
+      #   echo_fatal 'iptables filter need at least one params [DROP , ACCEPT]'
+      # fi
+
+      # chain
+      if [ -n "${chain}" ]; then
+        if [[ "${chain}" == 'input' ]] || [[ "${chain}" == 'Input' ]] || [[ "${chain}" == 'INPUT' ]]; then
+          chain='INPUT'
+        elif [[ "${chain}" == 'output' ]] || [[ "${chain}" == 'Output' ]] || [[ "${chain}" == 'OUTPUT' ]]; then
+          chain='OUTPUT'
+        else
+          # for custom chain
+          chain=$(echo "${chain}" | tr '[:lower:]' '[:upper:]')
+        fi
+      else
+        echo_fatal "Must indicate --chain [chain]"
+      fi
+
+      # fragment
+      local fragment_params=''
+      if [[ -n "${fragment}" ]] && [[ -z "${not_fragment}" ]]; then
+        fragment_params="${fragment_params} -f"
+      elif [[ -z "${fragment}" ]] && [[ -n "${not_fragment}" ]]; then
+        fragment_params="${fragment_params} ! -f"
+      elif [[ -n "${fragment}" ]] && [[ -n "${not_fragment}" ]]; then
+        echo_fatal "You should not set --fragment and --not-fragment at same time"
+      fi
+
+      # interface
+      local interface_params=''
+      if [[ -n "${interface_in}" ]] || [[ -n "${interface_out}" ]] || [[ -n "${not_interface_in}" ]] || [[ -n "${not_interface_out}" ]]; then
+        if [[ -n "${interface_in}" ]]; then
+          interface_params="${interface_params} -i ${interface_in}"
+        elif [[ -n "${not_interface_in}" ]]; then
+          interface_params="${interface_params} ! -i ${not_interface_in}"
+        fi
+
+        if [[ -n "${interface_out}" ]]; then
+          interface_params="${interface_params} -o ${interface_out}"
+        elif [[ -n "${not_interface_out}" ]]; then
+          interface_params="${interface_params} ! -o ${not_interface_out}"
+        fi
+
+      fi
+
+      # protocol
+      local protocol_params=''
+      if [[ -n ${protocol} ]]; then
+        protocol_params="${protocol_params} -p ${protocol}"
+
+        if [[ -n "${protocol_flag}" ]]; then
+          if [[ "${protocol}" == "icmp" ]]; then
+            protocol_params="${protocol_params} --icmp-type ${protocol_flag}"
+          elif [[ "${protocol}" == "tcp" ]]; then
+            protocol_params="${protocol_params} --tcp-flags ${protocol_flag}"
+          else
+            echo_fatal "Unknown flag ${protocol_flag} for protocol ${protocol}"
+          fi
+        fi
+      fi
+
+      # mac
+      local mac_params=''
+      if [[ -n ${mac} ]]; then
+        mac_params=" -m mac --mac-source ${mac}"
+      elif [[ -n ${not_mac} ]]; then
+        mac_params=" -m mac ! --mac-source ${not_mac}"
+      fi
+
+      #indicate ip-address or net-segment
+      local ip_params=''
+      if [[ -n "${ip_from}" ]] || [[ -n "${not_ip_from}" ]] || [[ -n "${ip_to}" ]] || [[ -n "${not_ip_to}" ]]; then
+        # ip_params=' -m iprange'
+
+        if [[ -n ${ip_from} ]]; then
+          if yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}(/[0-3]?[0-9])?$' "${ip_from}"; then
+            ip_params="${ip_params} -s ${ip_from}"
+          elif yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}-([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}$' "${ip_from}"; then
+            ip_params="${ip_params} -m iprange --src-range ${ip_from}"
+          else
+            echo_fatal "\"${ip_from}\" is not a valid ip-address or net-setment on --ip-from"
+          fi
+        elif [[ -n ${not_ip_from} ]]; then
+          if yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}(/[0-3]?[0-9])?$' "${not_ip_from}"; then
+            ip_params="${ip_params} ! -s ${not_ip_from}"
+          elif yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}-([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}$' "${not_ip_from}"; then
+            ip_params="${ip_params} -m iprange ! --src-range ${not_ip_from}"
+          else
+            echo_fatal "\"${not_ip_from}\" is not a valid ip-address or net-setment on --not-ip-from"
+          fi
+        fi
+
+        if [[ -n ${ip_to} ]]; then
+          if yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}(/[0-3]?[0-9])?$' "${ip_to}"; then
+            ip_params="${ip_params} -d ${ip_to}"
+          elif yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}-([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}$' "${ip_to}"; then
+            ip_params="${ip_params} -m iprange --dst-range ${ip_to}"
+          else
+            echo_fatal "\"${ip_to}\" is not a valid ip-address or net-setment on --ip-to"
+          fi
+        elif [[ -n ${not_ip_to} ]]; then
+          if yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}(/[0-3]?[0-9])?$' "${not_ip_to}"; then
+            ip_params="${ip_params} ! -d ${not_ip_to}"
+          elif yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}-([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}$' "${not_ip_to}"; then
+            ip_params="${ip_params} -m iprange ! --dst-range ${not_ip_to}"
+          else
+            echo_fatal "\"${not_ip_to}\" is not a valid ip-address or net-setment on --not-ip-to"
+          fi
+        fi
+
+      fi
+
+      # port
+      local port_params=''
+      if [ -n "${port_from}" ] || [ -n "${port_to}" ]; then
+        port_params=' -m multiport'
+        if [ -n "${port_from}" ]; then
+          port_params="${port_params} --sports ${port_from}"
+        fi
+
+        if [ -n "${port_to}" ]; then
+          port_params="${port_params} --dports ${port_to}"
+        fi
+      fi
+
+      #-m limit params
+      local limit_params=
+      if [ -n "${limitstr}" ]; then
+        # local limit=$(echo ${limitstr} | awk 'BEGIN{FS=":"}{print $1}')
+        # local burst=$(echo ${limitstr} | awk 'BEGIN{FS=":"}{print $2}')
+        # limit_params=$(_parse_limit "${limit}" "${burst}")
+        # _parse_limit2 "${limitstr}"
+        limit_params=$(_parse_limit2 "${limitstr}")
+      fi
+
+      # # --limit_freq [6/second | 6/min | xx/hour 6/day]
+      # local limit_params=''
+      # if [[ -n ${limit_burst} ]] || [[ -n ${limit} ]] || [[ -n ${not_limit} ]]; then
+      #   limit_params=' -m limit'
+
+      #   # --limit
+      #   if [[ -n ${limit} ]]; then
+      #     if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|hour|day)$' "${limit}"; then
+      #       limit_params="${limit_params} --limit ${limit}"
+      #     else
+      #       echo_fatl "\"${limit}\" is not a valid params for --freq"
+      #     fi
+      #   elif [[ -n ${not_limit} ]]; then
+      #     if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|hour|day)$' "${not_limit}"; then
+      #       limit_params="${limit_params} ! --limit ${not_limit}"
+      #     else
+      #       echo_fatal "\"${not_limit}\" is not a valid params for --freq"
+      #     fi
+      #   fi
+        
+      #   # --limit-burst
+      #   if [[ -n ${limit_burst} ]]; then
+      #     if yx_str_checkfmt '^([0-9])+$' "${limit_burst}"; then
+      #       limit_params="${limit_params} --limit-burst ${limit_burst}"
+      #     else
+      #       echo_fatal "\"${limit_burst}\" is not a valid params for --limit"
+      #     fi
+      #   fi
+
+      # fi
+
+
+      # state
+      local state_params=''
+      if [ -n "${state}" ]; then
+        state_params=" -m state --state ${state}"
+      fi
+
+      # option
+      local option_params=''
+      if [ -n "${option}" ]; then
+        option_params=" -j ${option}"
+      fi
+
+      if [ -n "${logstr}" ]; then
+
+        local log_limit_params=''
+        local log_prefix=$(echo "${logstr}" | awk 'BEGIN{FS=":"}{print $1}')
+
+        if [ -n "${log_prefix}" ]; then
+          local log_limitstr=${logstr#"${log_prefix}":}
+          if [ -n "${log_limitstr}" ]; then
+            if [ "${log_limitstr}" == '-' ] && [ -n "${limit_params}" ]; then
+              log_limit_params="${limit_params}"
+            else
+              log_limit_params=$(_parse_limit2 "${log_limitstr}")
+            fi
+          fi
+        fi
+
+        if [ -n "${log_prefix}" ]; then
+          echo_cmd "${IPTABLES} -A ${chain}${fragment_params}${interface_params}${protocol_params}${mac_params}${ip_params}${port_params}${log_limit_params}${state_params} -j LOG --log-prefix ${log_prefix}:${additional}"
+        fi
+      fi
+
+      echo_cmd "${IPTABLES} -A ${chain}${fragment_params}${interface_params}${protocol_params}${mac_params}${ip_params}${port_params}${limit_params}${state_params}${option_params}${additional}"
+
+    fi # end of if ${show};
+
+  fi # end of if ${show_help}
+
+}
+
+
+function iptables_filter2()
+{
+
+  local info_level=
+  local show=false
+
+  local show_help=false
+
+  local additional=
+
+  local option=$1
+  if ! [[ "${option}" =~ ^-.*$ ]]; then
+    shift
+  else
+    option=
+  fi
+
+  # if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+  #   option="ACCEPT"
+  #   shift
+  # elif [[ ${option} == 'disable' ]] || [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+  #   option="DROP"
+  #   shift
+  # else
+  #   option=
+  # fi
+
+
+	while [ $# -gt 0 ]; do
+		case $1 in
+
+      --list )
+        show=true
+      ;;
+
+      --info-level )
+        shift
+        info_level=$1
+      ;;
+
+      --help )
+        show_help=true
+      ;;
+
+			*)
+        additional="${additional} $1"
+      ;;
+		esac
+		shift
+	done
+
+
+  if ${show_help}; then
+    usage_filter
+    exit 0
+  else
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
+    if ${show}; then
+      echo_cmd "iptables -nvL"
+      exit 0
+    else
+
+      if [ -z "${option}" ]; then
+        echo_fatal 'iptables filter need at least one params [DROP , ACCEPT]'
+      fi
+
+      echo_noti 'Add filter rule...'
+      iptables_wrapper "${option}" ${additional}
+    fi
+  fi
+
+
+}
+
+
+function iptables_wall()
+{
+  local interface=
+  local not_interface=
+  local force_ip=false
+  local ip=
+  local not_ip=
+  local port=
+  local net=
+
+
+  local log=false  # TODO
+  local log_prefix=$1 # TODO
+
+  local info_level=
+  local show=false
+
+  local show_help=false
+
+  local type=$1
+  if ! [[ "${type}" =~ ^-.*$ ]]; then
+    shift
+
+    if [[ ${type} == 'srv' ]] || [[ ${type} == 'server' ]] || [[ ${type} == 'Srv' ]] || [[ ${type} == 'Server' ]] || [[ ${type} == 'SERVER' ]] ; then
+      type="server"
+    elif [[ ${type} == 'clt' ]] || [[ ${type} == 'client' ]] || [[ ${type} == 'Clt' ]] || [[ ${type} == 'Client' ]] || [[ ${type} == 'CLIENT' ]]; then
+      type="client"
+    elif [[ ${type} == 'incoming' ]] || [[ ${type} == 'Incoming' ]] || [[ ${type} == 'INCOMING' ]]; then
+      type="incoming"
+    elif [[ ${type} == 'outgoing' ]] || [[ ${type} == 'Outgoing' ]] || [[ ${type} == 'OUTGOING' ]]; then
+      type="outgoing"
+    else
+      echo_fatal "${CMD} wall unknown operation-type: ${type}"
+    fi
+
+    local option=$1
+    if ! [[ "${option}" =~ ^-.*$ ]]; then
+      shift
+      if [[ ${option} == 'reject-with' ]] || [[ ${option} == 'Reject-with' ]] || [[ ${option} == 'REJECT-WITH' ]]; then
+        option="REJECT"
+        local reject_value=$1
+        if ! [[ "${reject_value}" =~ ^-.*$ ]]; then
+          shift
+          option="${option} --reject-with ${reject_value}"
+        fi
+      fi
+    else
+      option=
+    fi
+  
+  else
+    type=
+  fi
+
+      # --log )
+      #   shift
+	    #   log=true
+      #   log_prefix=$1
+			# ;;
+
+  local cursor=
+	while [ $# -gt 0 ]; do
+    cursor=$1
+		case $1 in
+
+      --interface )
+				shift
+        interface=$1
+			;;
+
+      --not-interface )
+				shift
+        not_interface=$1
+			;;
+
+      --force-ip )
+				shift
+        force_ip=true
+			;;
+
+      --ip )
+				shift
+        ip=$1
+			;;
+
+      --no-ip )
+				shift
+        not_ip=$1
+			;;
+      
+      --net )
+				shift
+        net=$1
+			;;
+
+      --port )
+				shift
+        port=$1
+			;;
+
+      --list )
+        show=true
+      ;;
+
+      --info-level )
+        shift
+        info_level=$1
+      ;;
+
+      --help )
+        show_help=true
+      ;;
+
+      ####################
+      # block optional for iptables_filter 
+      ####################
+
+			--chain )
+				shift
+        echo_fatal "Can not use ${cursor} with ${CMD} wall"
+			;;
+
+      --interface-in )
+				shift
+        echo_fatal "Can not use ${cursor} with ${CMD} wall"
+			;;
+
+      --interface-out )
+				shift
+        echo_fatal "Can not use ${cursor} with ${CMD} wall"
+			;;
+
+      --not-interface-in )
+				shift
+        echo_fatal "Can not use ${cursor} with ${CMD} wall"
+			;;
+
+      --not-interface-out )
+				shift
+        echo_fatal "Can not use ${cursor} with ${CMD} wall"
+			;;
+
+      --ip-from )
+				shift
+        echo_fatal "Can not use ${cursor} with ${CMD} wall"
+      ;;
+
+      --not-ip-from )
+				shift
+        echo_fatal "Can not use ${cursor} with ${CMD} wall"
+      ;;
+
+      --ip-to )
+				shift
+        echo_fatal "Can not use ${cursor} with ${CMD} wall"
+      ;;
+
+      --not-ip-to )
+				shift
+        echo_fatal "Can not use ${cursor} with ${CMD} wall"
+      ;;
+
+      --port-from )
+				shift
+        echo_fatal "Can not use ${cursor} with ${CMD} wall"
+      ;;
+
+      --port-to )
+				shift
+        echo_fatal "Can not use ${cursor} with ${CMD} wall"
+      ;;
+
+      ####################
+      # For additional params
+      ####################
+			*)
+        additional="${additional} $1"
+				;;
+		esac
+		shift
+	done
+
+
+  if ${show_help}; then
+    usage_XXX
+    exit 0
+  else
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
+    if ${show}; then
+      echo_cmd "iptables -nvL"
+      exit 0
+    else
+
+      if [ -z ${type} ]; then
+        echo_fatal "Type must not be nil. ${CMD} wall <type> <optional>. try '-h' or '--help' to show more information."
+      fi
+
+      # if [ -z "${option}" ]; then
+      #   echo_fatal "Optional must not be nil. ${CMD} wall <type> <optional>. try '-h' or '--help' to show more information."
+      # fi
+
+
+      local -a inter_list
+      local -a ip_list
+      # inter_list=(\*)
+      # ip_list=(\*)
+
+      function _wall_handle_inter()
+      {
+        local local_interface=$1
+
+        # Find all interface
+        if [[ ${local_interface} == '*' ]]; then
+
+          if which ip > /dev/null; then
+              inter_str=$(ip link show | awk -F': ' '/^[0-9]+: /{print $2}' | tr '[:space:]' ' ' | tr -s '[:space:]' | grep -o "[^ ]\+\( \+[^ ]\+\)*" )
+          else
+              inter_str=$(ifconfig -a | grep -o '^[a-zA-Z0-9]*' | tr '[:space:]' ' ' | tr -s '[:space:]' | grep -o "[^ ]\+\( \+[^ ]\+\)*" )
+          fi
+
+
+          local tmp_inter_list=()
+          read -r -a tmp_inter_list <<< "${inter_str}"
+          for inter in "${tmp_inter_list[@]}"; do
+
+              # '*' not include local-address
+              if [[ "${inter}" =~ ^lo[0-9]*$ ]]; then
+                continue
+              fi
+
+              # exclude '--not-interface' if it exist
+              if [[ -n "${not_interface}" ]]  &&  [[ "${inter}" == "${not_interface}" ]]; then
+                continue
+              fi
+
+              if ${force_ip}; then
+                
+                # convert ip-address to ip/mask
+                local ip_addr=$(ip_from_inter "${inter}" )
+                if [ -n "${ip_addr}" ]; then
+
+                  # exclude '--ip' if it exist
+                  if [[ -n "${ip}" ]] && [[ "${ip}" == "${ip_addr}" ]]; then
+                    continue
+                  fi
+                  
+                  # exclude '--not-ip' if it exist
+                  if [[ -n "${not_ip}" ]] && [[ "${not_ip}" == "${ip_addr}" ]]; then
+                    continue
+                  fi
+
+                  ip_list=("${ip_list[@]}" "${ip_addr}");
+                fi
+              else
+                inter_list=("${inter_list[@]}" "${inter}");
+              fi
+          done
+        else
+
+          if ${force_ip}; then
+            # convert ip-address to ip/mask
+            local ip_addr=$(ip_from_inter "${local_interface}" )
+            if [ -n "${ip_addr}" ]; then
+
+              # exclude '--ip' if it exist
+              # exclude '--not-ip' if it exist
+              if [[ "${ip_addr}" != "${ip}" ]] && [[ "${ip_addr}" != "${not_ip}" ]]; then
+                ip_list=("${ip_list[@]}" "${ip_addr}");
+              fi
+
+            fi
+          else
+            inter_list=("${inter_list[@]}" "${local_interface}");
+          fi
+
+        fi
+      }
+
+      function _wall_handle_ip()
+      {
+        local local_ip=$1
+
+        if [ -n "${local_ip}" ]; then
+          ip_list=("${ip_list[*]}" "${local_ip}");
+        fi
+      }
+
+      _wall_handle_inter "${interface}"
+      _wall_handle_ip "${ip}"
+
+
+      if [[ -n ${net} ]]; then
+        if yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}(/[0-3]?[0-9])?$' "${net}"; then
+          _wall_handle_ip "${net}"
+        elif yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}-([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}$' "${net}"; then
+          _wall_handle_ip "${net}"
+        else
+          _wall_handle_inter "${net}"
+        fi
+      fi
+
+      # # Find all interface
+      # if [[ ${interface} == '*' ]]; then
+
+      #   if which ip > /dev/null; then
+      #       inter_str=$(ip link show | awk -F': ' '/^[0-9]+: /{print $2}' | tr '[:space:]' ' ' | tr -s '[:space:]' | grep -o "[^ ]\+\( \+[^ ]\+\)*" )
+      #   else
+      #       inter_str=$(ifconfig -a | grep -o '^[a-zA-Z0-9]*' | tr '[:space:]' ' ' | tr -s '[:space:]' | grep -o "[^ ]\+\( \+[^ ]\+\)*" )
+      #   fi
+
+
+      #   local tmp_inter_list=()
+      #   read -r -a tmp_inter_list <<< "${inter_str}"
+      #   for inter in "${tmp_inter_list[@]}"; do
+
+      #       # '*' not include local-address
+      #       if [[ "${inter}" =~ ^lo[0-9]*$ ]]; then
+      #         continue
+      #       fi
+
+      #       # exclude '--not-interface' if it exist
+      #       if [[ -n "${not_interface}" ]]  &&  [[ "${inter}" == "${not_interface}" ]]; then
+      #         continue
+      #       fi
+
+      #       if ${force_ip}; then
+              
+      #         # convert ip-address to ip/mask
+      #         local ip_addr=$(ip_from_inter "${inter}" )
+      #         if [ -n "${ip_addr}" ]; then
+
+      #           # exclude '--ip' if it exist
+      #           if [[ -n "${ip}" ]] && [[ "${ip}" == "${ip_addr}" ]]; then
+      #             continue
+      #           fi
+                
+      #           # exclude '--not-ip' if it exist
+      #           if [[ -n "${not_ip}" ]] && [[ "${not_ip}" == "${ip_addr}" ]]; then
+      #             continue
+      #           fi
+
+      #           ip_list=("${ip_list[@]}" "${ip_addr}");
+      #         fi
+      #       else
+      #         inter_list=("${inter_list[@]}" "${inter}");
+      #       fi
+      #   done
+      # else
+
+      #   if ${force_ip}; then
+      #     # convert ip-address to ip/mask
+      #     local ip_addr=$(ip_from_inter "${interface}" )
+      #     if [ -n "${ip_addr}" ]; then
+
+      #       # exclude '--ip' if it exist
+      #       # exclude '--not-ip' if it exist
+      #       if [[ "${ip_addr}" != "${ip}" ]] && [[ "${ip_addr}" != "${not_ip}" ]]; then
+      #         ip_list=("${ip_list[@]}" "${ip_addr}");
+      #       fi
+
+      #     fi
+      #   else
+      #     inter_list=("${inter_list[@]}" "${interface}");
+      #   fi
+
+      # fi
+
+      # Find all ip address
+      # if [ -n "${ip}" ]; then
+      #   ip_list=("${ip_list[*]}" "${ip}");
+      # fi
+
+      # Add * to empty list
+      inter_list=($(printf "%s\n" "${inter_list[@]}" | sort -u | tr '\n' ' '))
+      # inter_list=($(awk -v RS=' ' '!a[$1]++' <<< ${inter_list[@]}))
+      if [ ${#inter_list[@]} -eq 0 ]; then
+        inter_list=("${inter_list[@]}" \*);
+      fi
+
+      ip_list=($(printf "%s\n" "${ip_list[@]}" | sort -u | tr '\n' ' '))
+      # ip_list=($(awk -v RS=' ' '!a[$1]++' <<< ${ip_list[@]}))
+      if [ ${#ip_list[@]} -eq 0 ]; then
+        ip_list=("${ip_list[@]}" \*)
+      fi
+
+
+      for inter_in_list in "${inter_list[@]}"; do
+        for ip_in_list in "${ip_list[@]}"; do
+
+          local in_params=''
+          local out_params=''
+
+          # interface
+          if [[ -n "${inter_in_list}" ]] && [[ "${inter_in_list}" != '*' ]]; then
+            in_params="${in_params} --interface-in ${inter_in_list}"
+            out_params="${out_params} --interface-out ${inter_in_list}"
+          fi
+          if [ -n "${not_interface}" ]; then
+            in_params="${in_params} --not-interface-in ${not_interface}"
+            out_params="${out_params} --not-interface-out ${not_interface}"
+          fi
+
+          # ip
+          if [[ -n "${ip_in_list}" ]] && [[ "${ip_in_list}" != '*' ]]; then
+              in_params="${in_params} --ip-from ${ip_in_list}"
+              out_params="${out_params} --ip-to ${ip_in_list}"
+          fi
+          if [ -n "${not_ip}" ]; then
+              in_params="${in_params} --not-ip-from ${not_ip}"
+              out_params="${out_params} --not-ip-to ${not_ip}"
+          fi
+
+
+          if [[ "${type}" == 'server' ]]; then
+
+            if [ -n "${port}" ]; then
+              in_params="${in_params} --port-to ${port}"
+              out_params="${out_params} --port-from ${port}"
+            fi
+
+            echo_noti 'Add server rule...'
+            iptables_wrapper ${option} --chain INPUT ${in_params} --state NEW,ESTABLISHED ${additional}
+            iptables_wrapper ${option} --chain OUTPUT ${out_params} --state ESTABLISHED ${additional}
+          elif [[ ${type} == 'client' ]]; then
+
+            if [ -n "${port}" ]; then
+              in_params="${in_params} --port-from ${port}"
+              out_params="${out_params} --port-to ${port}"
+            fi
+
+            echo_noti 'Add client rule...'
+            iptables_wrapper ${option} --chain OUTPUT ${out_params} --state NEW,ESTABLISHED ${additional}
+            iptables_wrapper ${option} --chain INPUT ${in_params} --state ESTABLISHED ${additional}
+          elif [[ ${type} == 'incoming' ]]; then
+
+            if [ -n "${port}" ]; then
+              in_params="${in_params} --port-to ${port}"
+            fi
+
+            echo_noti 'Add incoming rule...'
+            iptables_wrapper "${option}" --chain INPUT${in_params} ${additional}
+          elif [[ ${type} == 'outgoing' ]]; then
+            if [ -n "${port}" ]; then
+              out_params="${out_params} --port-from ${port} --port-to ${port}"
+            fi
+
+            echo_noti 'Add outgoing rule...'
+            iptables_wrapper "${option}" --chain OUTPUT${out_params} ${additional}
+          fi
+        done
+      done
+    fi
+  fi
+}
+
+function iptables_srv()
+{
+  # local log=false  # TODO
+  # local log_prefix=$1 # TODO
+
+  local info_level=
+  local show=false
+
+  local show_help=false
+
+  local option=$1
+  if ! [[ "${option}" =~ ^-.*$ ]]; then
+    shift
+  else
+    option=
+  fi
+
+
+  local cursor=
+	while [ $# -gt 0 ]; do
+    cursor=$1
+		case $1 in
+
+      # --log )
+      #   shift
+	    #   log=true
+      #   log_prefix=$1
+			# ;;
+
+      --info-level )
+        shift
+        info_level=$1
+      ;;
+
+      --help )
+        show_help=true
+      ;;
+
+      ####################
+      # For additional params
+      ####################
+			*)
+        additional="${additional} $1"
+				;;
+		esac
+		shift
+	done
+
+
+  if ${show_help}; then
+    usage_XXX
+    exit 0
+  else
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
+    if ${show}; then
+      echo_cmd "iptables -nvL"
+      exit 0
+    else
+
+      if [ -z ${option} ]; then
+        echo_fatal "Optional must not be nil. ${CMD} wall <optional>. try '-h' or '--help' to show more information."
+      fi
+
+      iptables_wall "${option}" --incoming ${additional}
+
+    fi
+  fi
+
+}
+
+function iptables_client()
+{
+  # local log=false  # TODO
+  # local log_prefix=$1 # TODO
+
+  local info_level=
+  local show=false
+
+  local show_help=false
+
+  local option=$1
+  if ! [[ "${option}" =~ ^-.*$ ]]; then
+    shift
+  else
+    option=
+  fi
+
+
+  local cursor=
+	while [ $# -gt 0 ]; do
+    cursor=$1
+		case $1 in
+
+      # --log )
+      #   shift
+	    #   log=true
+      #   log_prefix=$1
+			# ;;
+
+      --info-level )
+        shift
+        info_level=$1
+      ;;
+
+      --help )
+        show_help=true
+      ;;
+
+      ####################
+      # For additional params
+      ####################
+			*)
+        additional="${additional} $1"
+				;;
+		esac
+		shift
+	done
+
+
+  if ${show_help}; then
+    usage_XXX
+    exit 0
+  else
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
+    if ${show}; then
+      echo_cmd "iptables -nvL"
+      exit 0
+    else
+
+      if [ -z ${option} ]; then
+        echo_fatal "Optional must not be nil. ${CMD} wall <optional>. try '-h' or '--help' to show more information."
+      fi
+
+      iptables_wall "${option}" --outgoing ${additional}
+
+    fi
+  fi
+
+}
+
 
 function iptables_filter()
 {
@@ -1766,13 +3572,13 @@ function iptables_filter()
 
         # --limit
         if [[ -n ${limit} ]]; then
-          if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|day)$' "${limit}"; then
+          if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|hour|day)$' "${limit}"; then
             limit_params="${limit_params} --limit ${limit}"
           else
             echo_fatal "\"${limit}\" is not a valid params for --freq"
           fi
         elif [[ -n ${not_limit} ]]; then
-          if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|day)$' "${not_limit}"; then
+          if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|hour|day)$' "${not_limit}"; then
             limit_params="${limit_params} ! --limit ${not_limit}"
           else
             echo_fatal "\"${not_limit}\" is not a valid params for --freq"
@@ -1845,48 +3651,82 @@ function iptables_filter()
             if [[ -z ${log_prefix} ]]; then
               log_prefix="${CMD}-Filter:"
             fi
+
+            if [[ -n ${ip_from} ]]  &&  [[ -z ${ip_to} ]]; then
+
+              if ${log}; then
+                if [[ -z ${log_prefix} ]]; then
+                  log_prefix="${CMD}-Incomming:"
+                fi
+
+                echo_noti 'Add filter incoming log...'
+                echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -m state --state NEW,ESTABLISHED  -j LOG --log-prefix ${log_prefix} --log-level 4"
+              fi
+
+              echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -m state --state NEW,ESTABLISHED  -j ${option}"
+              echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -m state --state ESTABLISHED -j ${option}"
+            elif [[ -n ${ip_to} ]]  &&  [[ -z ${ip_from} ]]; then
+
+              if ${log}; then
+                if [[ -z ${log_prefix} ]]; then
+                  log_prefix="${CMD}-Outgoing:"
+                fi
+                # Add filter outgoing log...
+                echo_noti 'Add filter outgoing log...'
+                echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
+              fi
+
+              echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -m state --state NEW,ESTABLISHED -j ${option}"
+              echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -m state --state ESTABLISHED -j ${option}"
+            else
+
+              if ${log}; then
+                if [[ -z ${log_prefix} ]]; then
+                  log_prefix="${CMD}-Filter:"
+                fi
+                # Add filter outgoing log...
+                echo_noti 'Add filter log...'
+                echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j LOG --log-prefix ${log_prefix} --log-level 4"
+                echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j LOG --log-prefix ${log_prefix} --log-level 4"
+              fi
+
+
+              echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${option}"
+              echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${option}"
+            fi
             
-            # Add filter log...
-            echo_warn 'Add filter log...'
-            echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j LOG --log-prefix ${log_prefix} --log-level 4"
-            echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j LOG --log-prefix ${log_prefix} --log-level 4"
           fi
-          # Add filter rule...
-          echo_warn 'Add filter rule...'
-          echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${option}"
-          echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j ${option}"
+
       else
 
-        if [[ -n ${inports} ]]; then
+        if [[ -n ${inports} ]]  &&  [[ -z ${outports} ]]; then
           if ${log}; then
             if [[ -z ${log_prefix} ]]; then
               log_prefix="${CMD}-Incomming:"
             fi
             # Add filter incoming log...
-            echo_warn 'Add filter incoming log...'
-            echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${inports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
+            echo_noti 'Add filter incoming log...'
+            echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport --dports ${inports}${limit_params}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
           fi
 
           # Add filter incoming rule...
-          echo_warn 'Add filter incoming rule...'
-          echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${inports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
-          echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport${limit_params} --sports ${inports}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
-        fi
-
-        if [[ -n ${outports} ]]; then
+          echo_noti 'Add filter incoming rule...'
+          echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport --dports ${inports}${limit_params}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
+          echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport --sports ${inports}${limit_params}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
+        elif [[ -n ${outports} ]]  &&  [[ -z ${inports} ]]; then
           if ${log}; then
             if [[ -z ${log_prefix} ]]; then
               log_prefix="${CMD}-Outgoing:"
             fi
             # Add filter outgoing log...
-            echo_warn 'Add filter outgoing log...'
-            echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${outports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
+            echo_noti 'Add filter outgoing log...'
+            echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport --dports ${outports}${limit_params}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
           fi
 
           # Add filter outgoing rule...
-          echo_warn 'Add filter outgoing rule...'
-          echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport${limit_params} --dports ${outports}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
-          echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport${limit_params} --sports ${outports}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
+          echo_noti 'Add filter outgoing rule...'
+          echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport --dports ${outports}${limit_params}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
+          echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport --sports ${outports}${limit_params}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
         fi
 
       fi # end of [[ -z ${inports} ]]  &&  [[ -z ${outports} ]]
@@ -1996,12 +3836,12 @@ function iptables_nat()
       fi
       
       # Add forwarding log
-      echo_warn 'Add forwarding log...'
+      echo_noti 'Add forwarding log...'
       echo_cmd "${IPTABLES} -A FORWARD -o ${to_inter} -i ${from_inter} -m conntrack --ctstate NEW -j LOG --log-prefix ${log_prefix} --log-level 4"
     fi
 
     # Add forwarding rule
-    echo_warn 'Add forwarding rule...'
+    echo_noti 'Add forwarding rule...'
     echo_cmd "${IPTABLES} -A FORWARD -o ${to_inter} -i ${from_inter} -m conntrack --ctstate NEW -j ACCEPT"
     # 允许已经建立链接的网络包转发
     #sudo iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
@@ -2010,7 +3850,7 @@ function iptables_nat()
 
     # 设置SNAT
     # add SNAT rule
-    echo_warn 'add SNAT rule...'
+    echo_noti 'add SNAT rule...'
     #iptables -t nat -A POSTROUTING -s 192.168.56.0/24 -j SNAT --to-source 10.0.2.15
     echo_cmd "${IPTABLES} -t nat -A POSTROUTING -o ${to_inter} -j MASQUERADE" # 这个记得之前应该好使啊????!!!!
 
@@ -2032,6 +3872,71 @@ function iptables_nat()
       set_info_level "${info_level}"
     fi
     echo_fatal "One of '--snat' or '--dnat' must be set."
+  fi
+
+}
+
+function iptables_rule()
+{
+  local rule=
+  local show_help=false
+  local info_level=
+
+
+  local option=$1
+  if [[ ${option} == 'create' ]] || [[ ${option} == 'Create' ]] || [[ ${option} == 'CREATE' ]] ; then
+    option="CREATE"
+    shift
+  else
+    option=
+  fi
+
+
+  while [ $# -gt 0 ]; do
+		case $1 in
+			--rule )
+        shift
+				rule=$1
+			;;
+
+      --info-level )
+        shift
+        info_level=$1
+      ;;
+
+      --help )
+          show_help=true
+      ;;
+
+
+			*)
+        additional="${additional} $1"
+      ;;
+		esac
+		shift
+	done
+
+  if ${show_help}; then
+    usage_xxx
+    exit 0
+  else
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
+    if [ -z ${option} ]; then
+      echo_fatal 'iptables port need at least one params [DROP , ACCEPT]'
+    fi
+
+    if [[ "${option}" == 'CREATE' ]]; then
+      if [ -z "${rule}" ]; then
+        echo_fatal "Must indicate rule name with --rule <name>"
+      fi
+
+      echo_noti "Create new rule :'${rule}'..."
+      echo_cmd "${IPTABLES} -N ${rule}"
+    fi
   fi
 
 }
@@ -2231,8 +4136,8 @@ function iptables_loopback()
       echo_fatal 'iptables loopback need at least one params [DROP , ACCEPT]'
     fi
 
-    if [[ -n ${interface} ]]  &&  [[ ${interface} != 'icmp' ]]; then
-      echo_fatal "${CMD} loopback can not allow \"${interface}\" interface"
+    if [[ -n ${interface} ]]; then
+      echo_fatal "${CMD} loopback can not allow --interface interface"
     fi
 
     if [[ -n ${not_interface} ]]; then
@@ -2241,10 +4146,161 @@ function iptables_loopback()
 
     # iptables -A INPUT -i lo -j ACCEPT
     # iptables -A OUTPUT -o lo -j ACCEPT
-    iptables_filter ${option} --interface lo
+    iptables_wall ${option} --incoming --outgoing --interface lo
   fi
 
 }
+
+function iptables_local()
+{
+
+  iptables_wall incoming "$@"
+
+  exit 0
+
+  local option=$1
+  if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+    option="ACCEPT"
+    shift
+  elif [[ ${option} == 'disable' ]] || [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+    option="DROP"
+    shift
+  else
+    option=
+  fi
+
+
+  local additional=''
+
+  # ignore params
+  local interface=
+  local not_interface=
+  local force_ip=false
+
+  local ip=
+
+  local show_help=false
+  local info_level=
+
+	while [ $# -gt 0 ]; do
+		case $1 in
+
+      --interface )
+				shift
+				interface=$1
+			;;
+
+      --force-ip )
+				shift
+        force_ip=true
+			;;
+      
+			--not-interface )
+				shift
+				not_interface=$1
+			;;
+
+      --ip )
+				shift
+				ip_address=$1
+			;;
+
+      --info-level )
+        shift
+        info_level=$1
+        ;;
+
+      --help )
+        show_help=true
+      ;;
+
+
+			*)
+        additional="${additional} $1"
+      ;;
+		esac
+		shift
+	done
+
+
+
+  if ${show_help}; then
+    echo_fatal 'Not implementation !'
+    exit 0
+  else
+     
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
+    if [ -z ${option} ]; then
+      echo_fatal 'iptables loopback need at least one params [DROP , ACCEPT]'
+    fi
+
+
+    if [ -n "${ip_address}" ]; then
+      if ! yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}(/[0-3]?[0-9])?$' "${ip_address}"; then
+        echo_fatal "Invalid ip address format ${ip_address}"
+      fi
+
+      # iptables_filter ${option} --ip-from "${ip_addr}" ${additional}
+      iptables_filter2 ${option} --chain INPUT --ip-from "${ip_address}" ${additional}
+
+    elif [ -n "${interface}" ]; then
+
+      if [[ ${interface} == '*' ]]; then
+
+        inter_str=
+        if which ip > /dev/null; then
+            inter_str=$(ip link show | awk -F': ' '/^[0-9]+: /{print $2}' | tr '[:space:]' ' ' | tr -s '[:space:]' | grep -o "[^ ]\+\( \+[^ ]\+\)*" )
+        else
+            inter_str=$(ifconfig -a | grep -o '^[a-zA-Z0-9]*' | tr '[:space:]' ' ' | tr -s '[:space:]' | grep -o "[^ ]\+\( \+[^ ]\+\)*" )
+        fi
+
+        local inter_array=()
+        read -r -a inter_array <<< "${inter_str}"
+        for inter in "${inter_array[@]}"; do
+
+            if [[ "${inter}" =~ ^lo[0-9]*$ ]]; then
+              continue
+            fi
+
+            if [[ -n "${not_interface}" ]]  &&  [[ "${inter}" == "${not_interface}" ]]; then
+              continue
+            fi
+
+            if ${force_ip}; then
+              local ip_addr=$(ip_from_inter "${inter}" )
+              if [ -n "${ip_addr}" ]; then
+                iptables_filter2 ${option} --chain INPUT --ip-from "${ip_addr}" ${additional}
+              fi
+            else
+              iptables_filter2 ${option} --chain INPUT --interface-in "${inter}" ${additional}
+            fi
+
+        done
+
+      # elif [[ ${interface} =~ ^lo[0-9]*$ ]]; then
+      #   # Do not use ip address in loopback interface
+      #   iptables_filter2 ${option} --chain INPUT --interface-in "${interface}" ${additional}
+      else
+        if ${force_ip}; then
+          local ip_addr=$(ip_from_inter "${interface}" )
+          if [ -n "${ip_addr}" ]; then
+            iptables_filter2 ${option} --ip-from "${ip_addr}" ${additional}
+          fi
+        else
+          iptables_filter2 ${option} --chain INPUT --interface-in "${interface}" ${additional}
+        fi
+      fi
+
+    else
+      echo "here"
+    fi # end of 'if [ -n "${ip_address}" ]'
+
+  fi # end of 'if ${show_help}'
+}
+
 
 function iptables_ping()
 {
@@ -2458,10 +4514,10 @@ function iptables_https()
   local info_level=
 
   local option=$1
-  if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+  if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'Accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
     option="ACCEPT"
     shift
-  elif [[ ${option} == 'disable' ]] || [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+  elif [[ ${option} == 'disable' ]] || [[ ${option} == 'drop' ]] ||  [[ ${option} == 'Drop' ]]  || [[ ${option} == 'DROP' ]]; then
     option="DROP"
     shift
   else
@@ -2597,12 +4653,27 @@ elif [[ ${sub_cmd} == "save" ]]; then
   iptables_save $@
 elif [[ ${sub_cmd} == "default" ]]; then
   iptables_default $@
+elif [[ ${sub_cmd} == "rule" ]]; then
+  iptables_rule $@
 elif [[ ${sub_cmd} == "filter" ]]; then
-  iptables_filter $@
+  iptables_filter2 $@
+elif [[ ${sub_cmd} == "wall" ]]; then
+  iptables_wall "${@}"
 elif [[ ${sub_cmd} == "nat" ]]; then
   iptables_nat $@
+elif [[ ${sub_cmd} == "incoming" ]] || [[ ${sub_cmd} == "Incoming" ]] || [[ ${sub_cmd} == "INCOMING" ]]; then
+  iptables_wall incoming "$@"
+elif [[ ${sub_cmd} == "outgoing" ]] || [[ ${sub_cmd} == "Outgoing" ]] || [[ ${sub_cmd} == "OUTGOING" ]]; then
+  iptables_wall outgoing "$@"
+elif [[ ${sub_cmd} == "server" ]] || [[ ${sub_cmd} == "Server" ]] || [[ ${sub_cmd} == "SERVER" ]]; then
+  iptables_wall server "$@"
+elif [[ ${sub_cmd} == "client" ]] || [[ ${sub_cmd} == "Client" ]] || [[ ${sub_cmd} == "CLIENT" ]]; then
+  iptables_wall client "$@"
+
 elif [[ ${sub_cmd} == "port" ]]; then
   iptables_port $@
+elif [[ ${sub_cmd} == "local" ]]; then
+  iptables_wall incoming "$@"
 elif [[ ${sub_cmd} == "loopback" ]]; then
   iptables_loopback $@
 elif [[ ${sub_cmd} == "ping" ]]; then
@@ -2623,3 +4694,4 @@ elif [[ ${sub_cmd} == "--help" ]] || [[ ${sub_cmd} == '-h' ]]; then
 else
   echo_fatal "Unknown sub command:'${sub_cmd}'. Use '${CMD} --help' to show document"
 fi
+
