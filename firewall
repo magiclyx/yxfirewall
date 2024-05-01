@@ -504,11 +504,12 @@ function strcontains()
 
 	
 	if ${ignorecase}; then
-		for e in $(echo ${arr_str:2}); do
+		for e in $(echo "${arr_str}"); do
 			[[ "${e^^}" == "${str^^}" ]] && return 0
 		done
 	else
-		for e in $(echo ${arr_str:2}); do
+		for e in $(echo "${arr_str}"); do
+      echo "compare between ${e} and ${str}"
 			[[ "${e}" == "${str}" ]] && return 0
 		done
 	fi
@@ -1272,6 +1273,24 @@ function _parse_limit2()
 #   fi
 # }
 
+####################################################################################################
+# rule 
+####################################################################################################
+
+function _exist_rule()
+{
+  local rule=$1
+
+  if [ -n "${rule}" ]; then
+    if strcontains "${rule}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING' --ignorecase; then
+      return 0
+    elif ${IPTABLES} -S | grep -q "\-N ${rule}"; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
 
 ####################################################################################################
 # usage
@@ -2223,7 +2242,7 @@ function iptables_default()
 function iptables_wrapper()
 {
 
-  local chain=
+  local rule=
 
   local interface_in=
   local interface_out=
@@ -2297,10 +2316,10 @@ function iptables_wrapper()
 
 		case $1 in
 
-			--chain )
+			--rule )
         cursor=$1
 				shift
-				chain=$1
+				rule=$1
 			;;
 
       --fragment )
@@ -2465,17 +2484,17 @@ function iptables_wrapper()
       # fi
 
       # chain
-      if [ -n "${chain}" ]; then
-        if [[ "${chain}" == 'input' ]] || [[ "${chain}" == 'Input' ]] || [[ "${chain}" == 'INPUT' ]]; then
-          chain='INPUT'
-        elif [[ "${chain}" == 'output' ]] || [[ "${chain}" == 'Output' ]] || [[ "${chain}" == 'OUTPUT' ]]; then
-          chain='OUTPUT'
+      if [ -n "${rule}" ]; then
+        if [[ "${rule}" == 'input' ]] || [[ "${rule}" == 'Input' ]] || [[ "${rule}" == 'INPUT' ]]; then
+          rule='INPUT'
+        elif [[ "${rule}" == 'output' ]] || [[ "${rule}" == 'Output' ]] || [[ "${rule}" == 'OUTPUT' ]]; then
+          rule='OUTPUT'
         else
           # for custom chain
-          chain=$(echo "${chain}" | tr '[:lower:]' '[:upper:]')
+          rule=$(echo "${rule}" | tr '[:lower:]' '[:upper:]')
         fi
       else
-        echo_fatal "Must indicate --chain [chain]"
+        echo_fatal "Must indicate --rule [rule]"
       fi
 
       # fragment
@@ -2639,6 +2658,12 @@ function iptables_wrapper()
         option_params=" -j ${option}"
       fi
 
+      if [ -n "${rule}" ]; then
+        if ! _exist_rule "${rule}"; then
+          echo_cmd "${IPTABLES} -N ${rule}"
+        fi
+      fi
+
       if [ -n "${logstr}" ]; then
 
         local log_limit_params=''
@@ -2656,11 +2681,11 @@ function iptables_wrapper()
         fi
 
         if [ -n "${log_prefix}" ]; then
-          echo_cmd "${IPTABLES} -A ${chain}${fragment_params}${interface_params}${protocol_params}${mac_params}${ip_params}${port_params}${log_limit_params}${state_params} -j LOG --log-prefix ${log_prefix}:${additional}"
+          echo_cmd "${IPTABLES} -A ${rule}${fragment_params}${interface_params}${protocol_params}${mac_params}${ip_params}${port_params}${log_limit_params}${state_params} -j LOG --log-prefix ${log_prefix}:${additional}"
         fi
       fi
 
-      echo_cmd "${IPTABLES} -A ${chain}${fragment_params}${interface_params}${protocol_params}${mac_params}${ip_params}${port_params}${limit_params}${state_params}${option_params}${additional}"
+      echo_cmd "${IPTABLES} -A ${rule}${fragment_params}${interface_params}${protocol_params}${mac_params}${ip_params}${port_params}${limit_params}${state_params}${option_params}${additional}"
 
     fi # end of if ${show};
 
@@ -2865,7 +2890,7 @@ function iptables_wall()
       # block optional for iptables_filter 
       ####################
 
-			--chain )
+			--rule )
 				shift
         echo_fatal "Can not use ${cursor} with ${CMD} wall"
 			;;
@@ -3173,8 +3198,8 @@ function iptables_wall()
             fi
 
             echo_noti 'Add server rule...'
-            iptables_wrapper ${option} --chain INPUT ${in_params} --state NEW,ESTABLISHED ${additional}
-            iptables_wrapper ${option} --chain OUTPUT ${out_params} --state ESTABLISHED ${additional}
+            iptables_wrapper ${option} --rule INPUT ${in_params} --state NEW,ESTABLISHED ${additional}
+            iptables_wrapper ${option} --rule OUTPUT ${out_params} --state ESTABLISHED ${additional}
           elif [[ ${type} == 'client' ]]; then
 
             if [ -n "${port}" ]; then
@@ -3183,8 +3208,8 @@ function iptables_wall()
             fi
 
             echo_noti 'Add client rule...'
-            iptables_wrapper ${option} --chain OUTPUT ${out_params} --state NEW,ESTABLISHED ${additional}
-            iptables_wrapper ${option} --chain INPUT ${in_params} --state ESTABLISHED ${additional}
+            iptables_wrapper ${option} --rule OUTPUT ${out_params} --state NEW,ESTABLISHED ${additional}
+            iptables_wrapper ${option} --rule INPUT ${in_params} --state ESTABLISHED ${additional}
           elif [[ ${type} == 'incoming' ]]; then
 
             if [ -n "${port}" ]; then
@@ -3192,14 +3217,14 @@ function iptables_wall()
             fi
 
             echo_noti 'Add incoming rule...'
-            iptables_wrapper "${option}" --chain INPUT${in_params} ${additional}
+            iptables_wrapper "${option}" --rule INPUT${in_params} ${additional}
           elif [[ ${type} == 'outgoing' ]]; then
             if [ -n "${port}" ]; then
               out_params="${out_params} --port-from ${port} --port-to ${port}"
             fi
 
             echo_noti 'Add outgoing rule...'
-            iptables_wrapper "${option}" --chain OUTPUT${out_params} ${additional}
+            iptables_wrapper "${option}" --rule OUTPUT${out_params} ${additional}
           fi
         done
       done

@@ -87,21 +87,21 @@ fi
 ###########################################################
 # 攻击防护：隐身扫描
 ###########################################################
-sudo ./firewall rule create --rule 'STEALTH_SCAN'
-sudo ./firewall filter DROP --chain STEALTH_SCAN --log 'stealth_scan_attack'
+# sudo ./firewall rule create --rule 'STEALTH_SCAN'
+sudo ./firewall filter DROP --rule STEALTH_SCAN --log 'stealth_scan_attack'
 
 # 看似隐身扫描的数据包会跳转到“STEALTH_SCAN”链
-sudo ./firewall filter STEALTH_SCAN --chain INPUT --proto tcp --proto-flag SYN,ACK SYN,ACK --state NEW
-sudo ./firewall filter STEALTH_SCAN --chain INPUT --proto tcp --proto-flag ALL NONE
+sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag SYN,ACK SYN,ACK --state NEW
+sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag ALL NONE
 
-sudo ./firewall filter STEALTH_SCAN --chain INPUT --proto tcp --proto-flag SYN,FIN SYN,FIN
-sudo ./firewall filter STEALTH_SCAN --chain INPUT --proto tcp --proto-flag SYN,RST SYN,RST
-sudo ./firewall filter STEALTH_SCAN --chain INPUT --proto tcp --proto-flag ALL SYN,RST,ACK,FIN,URG
+sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag SYN,FIN SYN,FIN
+sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag SYN,RST SYN,RST
+sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag ALL SYN,RST,ACK,FIN,URG
 
-sudo ./firewall filter STEALTH_SCAN --chain INPUT --proto tcp --proto-flag FIN,RST FIN,RST
-sudo ./firewall filter STEALTH_SCAN --chain INPUT --proto tcp --proto-flag ACK,FIN FIN #TODO 这个好像有问题
-sudo ./firewall filter STEALTH_SCAN --chain INPUT --proto tcp --proto-flag ACK,PSH PSH
-sudo ./firewall filter STEALTH_SCAN --chain INPUT --proto tcp --proto-flag ACK,URG URG
+sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag FIN,RST FIN,RST
+sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag ACK,FIN FIN #TODO 这个好像有问题
+sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag ACK,PSH PSH
+sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag ACK,URG URG
 
 ###########################################################
 # 攻击防护：端口扫描碎片报文、DOS 攻击
@@ -115,12 +115,12 @@ sudo ./firewall incoming DROP --fragment --log 'fragment_packet'
 # 攻击防护：Ping of Death
 ###########################################################
 # 10 次 ping 超过每秒 1 次后丢弃
-sudo ./firewall rule create --rule 'PING_OF_DEATH'
-sudo ./firewall filter RETURN --chain PING_OF_DEATH --proto icmp --proto-flag echo-request --limit limit-upto:t_PING_OF_DEATH:1/s:10:srcip:::3000
+# sudo ./firewall rule create --rule 'PING_OF_DEATH'
+sudo ./firewall filter RETURN --rule PING_OF_DEATH --proto icmp --proto-flag echo-request --limit limit-upto:t_PING_OF_DEATH:1/s:10:srcip:::3000
 
 
 # # 丢弃超出限制的ICMP
-sudo ./firewall filter DROP --chain PING_OF_DEATH --log ping_of_death_attack
+sudo ./firewall filter DROP --rule PING_OF_DEATH --log ping_of_death_attack
 
 
 # # ICMP跳转到“PING_OF_DEATH”链
@@ -131,11 +131,11 @@ sudo ./firewall incoming PING_OF_DEATH --proto icmp --proto-flag echo-request
 # 攻击防护：SYN Flood 攻击
 # 除了此措施外，您还应该启用 Syn cookie。
 ###########################################################
-sudo ./firewall rule create --rule 'SYN_FLOOD'
-sudo ./firewall filter RETURN --chain SYN_FLOOD --proto tcp --syn --limit limit-upto:t_SYN_FLOOD:200/s:3:srcip:::3000
+# sudo ./firewall rule create --rule 'SYN_FLOOD'
+sudo ./firewall filter RETURN --rule SYN_FLOOD --proto tcp --syn --limit limit-upto:t_SYN_FLOOD:200/s:3:srcip:::3000
 
 # 丢弃超过限制的 SYN 报文
-sudo ./firewall filter DROP --chain SYN_FLOOD --log syn_flood_attack
+sudo ./firewall filter DROP --rule SYN_FLOOD --log syn_flood_attack
 
 # SYN 数据包跳转到 “SYN_FLOOD” 链
 sudo ./firewall incoming SYN_FLOOD --proto tcp --syn 
@@ -195,8 +195,6 @@ fi
 ###########################################################
 # SNAT设置
 ###########################################################
-
-echo '==='
 
 if [ -n "${SNAT_WAN}" ]  && [ "${SNAT_LAN_LIST}" ]
 then
