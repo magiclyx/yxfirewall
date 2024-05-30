@@ -8,7 +8,8 @@ FILENAME_NAT='iptables'
 FILENAME_NAT6='iptables6'
 
 RULE_DIR='/etc/yuxi/firewall'
-CONFIG_FILE='/var/lib/yuxi/firewall.conf'
+# CONFIG_FILE='/var/lib/yuxi/firewall.conf'
+CONFIG_DIR="/var/lib/yuxi/${CMD}"
 
 DEBUG=true
 # silent
@@ -34,6 +35,26 @@ IPTABLES_RESTORE='/usr/sbin/iptables-restore'
 IP6TABLES_RESTORE='/usr/sbin/ip6tables-restore'
 
 SYSCTL='/usr/sbin/sysctl'
+
+
+
+###########################################################
+# Default port
+###########################################################
+
+SSH=22
+FTP=20,21
+DNS=53
+SMTP=25,465,587
+POP3=110,995
+IMAP=143,993
+HTTP=80,443
+IDENT=113
+NTP=123
+MYSQL=3306
+NET_BIOS=135,137,138,139,445
+DHCP=67,68
+
 
 
 ####################################################################################################
@@ -1220,23 +1241,33 @@ function _parse_limit_time()
 
 function _parse_limit2()
 {
-  local limitstr=$1
-  local module=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $1}')
+  local -a limitstr_array=
+  IFS=';' read -r -a limitstr_array <<< "${1}"
 
-  if [ "${module}" == 'limit' ]; then
-    _parse_limit_limit "${limitstr}"
-  elif [ "${module}" == 'limit-above' ]  ||  [ "${module}" == 'limit-upto' ]; then
-    _parse_limit_hashlimit "${limitstr}"
-  elif [ "${module}" == 'length' ]; then
-    _parse_limit_length "${limitstr}"
-  elif [ "${module}" == 'connect' ]; then
-    _parse_limit_connection "${limitstr}"
-  elif [ "${module}" == 'time' ]; then
-    _parse_limit_time "${limitstr}"
-  elif [[ "${module}" =~ ^recent-.+$ ]]; then
-  # elif [ "${module}" == 'recent-set' ] || [ "${module}" == 'recent-remove' ] || [ "${module}" == 'recent-update' ] || [ "${module}" == 'recent-check' ]; then
-    _parse_limit_recent "${limitstr}"
-  fi
+  local limit_params=''
+  for limitstr in "${limitstr_array[@]}"; do
+
+    local module=$(echo "${limitstr}" | awk 'BEGIN{FS=":"}{print $1}')
+
+    if [ "${module}" == 'limit' ]; then
+      limit_params="${limit_params} $(_parse_limit_limit ${limitstr})"
+    elif [ "${module}" == 'limit-above' ]  ||  [ "${module}" == 'limit-upto' ]; then
+      limit_params="${limit_params} $(_parse_limit_hashlimit ${limitstr})"
+    elif [ "${module}" == 'length' ]; then
+      limit_params="${limit_params} $(_parse_limit_length ${limitstr})"
+    elif [ "${module}" == 'connect' ]; then
+      limit_params="${limit_params} $(_parse_limit_connection ${limitstr})"
+    elif [ "${module}" == 'time' ]; then
+      limit_params="${limit_params} $(_parse_limit_time ${limitstr})"
+    elif [[ "${module}" =~ ^recent-.+$ ]]; then
+    # elif [ "${module}" == 'recent-set' ] || [ "${module}" == 'recent-remove' ] || [ "${module}" == 'recent-update' ] || [ "${module}" == 'recent-check' ]; then
+      limit_params="${limit_params} $(_parse_limit_recent ${limitstr})"
+    fi
+
+  done
+
+  echo "${limit_params}"
+
 }
 
 # function _pre_handle_limit()
@@ -1726,6 +1757,15 @@ function iptables_config()
     local show_help=false
     local info_level=
 
+
+    local domain=$1
+    if ! [[ "${domain}" =~ ^-.*$ ]]; then
+      shift
+    else
+      domain='config'
+    fi
+
+
     while [ $# -gt 0 ]; do
 		case $1 in
 
@@ -1781,7 +1821,13 @@ function iptables_config()
       set_info_level "${info_level}"
     fi
 
-    local config_dir=$(dirname ${CONFIG_FILE})
+    if [ -z "${domain}" ]; then
+      echo_fatal "Domain is empty"
+    fi
+
+
+    local config_file="${CONFIG_DIR}/$(echo ${domain} | tr '.' '/' | tr '[:upper:]' '[:lower:]' | grep -o '[^ ]\+\( \+[^ ]\+\)*').conf"
+    local config_dir=$(dirname "${config_file}")
     if [ ! -d  "${config_dir}" ]; then
         echo_err "DIR ${config_dir} not exist, try create one"
         echo_cmd "mkdir -p ${config_dir}"
@@ -1790,14 +1836,15 @@ function iptables_config()
         fi
     fi
 
+
     if [[ "${option}" == 'read' ]]; then
 
       if [[ -z ${key} ]]; then
         echo_fatal "${CMD} --read config must provide key value, using --key"
       fi
 
-      if [ -r "${CONFIG_FILE}" ]; then
-        read_cfg_key --file "${CONFIG_FILE}" --key "${key}"
+      if [ -r "${config_file}" ]; then
+        read_cfg_key --file "${config_file}" --key "${key}"
       fi
 
     elif [[ "${option}" == 'write' ]]; then
@@ -1810,21 +1857,25 @@ function iptables_config()
         echo_fatal "${CMD} --write must provide value property, using --val"
       fi
 
-      write_cfg_key --file "${CONFIG_FILE}" --key "${key}" --val "${val}"
+      if has_cfg_haskey --file "${config_file}" --key "${key}"; then
+        delete_cfg_key --file "${config_file}" --key "${key}"
+      fi
+
+      write_cfg_key --file "${config_file}" --key "${key}" --val "${val}"
     elif [[ "${option}" == 'remove' ]]; then
 
       if [[ -z ${key} ]]; then
         echo_fatal "${CMD} --read config must provide key value, using --key"
       fi
 
-      if [ -w "${CONFIG_FILE}" ]; then
-        delete_cfg_key --file "${CONFIG_FILE}" --key "${key}"
+      if [ -w "${config_file}" ]; then
+        delete_cfg_key --file "${config_file}" --key "${key}"
       fi
 
     elif [[ "${option}" == 'list' ]]; then
 
-      if [ -r "${CONFIG_FILE}" ]; then
-        cat "${CONFIG_FILE}"
+      if [ -r "${config_file}" ]; then
+        cat "${config_file}"
       fi
 
     else
@@ -2269,7 +2320,8 @@ function iptables_wrapper()
 
   local state=
 
-  local limitstr=
+  # local limitstr=
+  local -a limitstr_array
   local logstr=
 
 
@@ -2419,7 +2471,7 @@ function iptables_wrapper()
       --limit )
         cursor=$1
 				shift
-        limitstr=$1
+        limitstr_array=("${limitstr_array[@]}" "${1}")
       ;;
 
       --state )
@@ -2456,6 +2508,7 @@ function iptables_wrapper()
         elif [[ "${cursor}" == '--proto-flag' ]]; then
           protocol_flag="${protocol_flag} $1"
         else
+          cursor='<additional>' # special cursor for additional params
           additional="${additional} $1"
         fi
 				;;
@@ -2490,8 +2543,9 @@ function iptables_wrapper()
         elif [[ "${rule}" == 'output' ]] || [[ "${rule}" == 'Output' ]] || [[ "${rule}" == 'OUTPUT' ]]; then
           rule='OUTPUT'
         else
+          :
           # for custom chain
-          rule=$(echo "${rule}" | tr '[:lower:]' '[:upper:]')
+          # rule=$(echo "${rule}" | tr '[:lower:]' '[:upper:]')
         fi
       else
         echo_fatal "Must indicate --rule [rule]"
@@ -2606,13 +2660,18 @@ function iptables_wrapper()
 
       #-m limit params
       local limit_params=
-      if [ -n "${limitstr}" ]; then
-        # local limit=$(echo ${limitstr} | awk 'BEGIN{FS=":"}{print $1}')
-        # local burst=$(echo ${limitstr} | awk 'BEGIN{FS=":"}{print $2}')
-        # limit_params=$(_parse_limit "${limit}" "${burst}")
-        # _parse_limit2 "${limitstr}"
-        limit_params=$(_parse_limit2 "${limitstr}")
-      fi
+      for limitstr in "${limitstr_array[@]}"; do
+        if [ -n "${limitstr}" ]; then
+          # local limit=$(echo ${limitstr} | awk 'BEGIN{FS=":"}{print $1}')
+          # local burst=$(echo ${limitstr} | awk 'BEGIN{FS=":"}{print $2}')
+          # limit_params=$(_parse_limit "${limit}" "${burst}")
+          # _parse_limit2 "${limitstr}"
+          limit_params="${limit_params}$(_parse_limit2 ${limitstr})"
+        fi
+      done
+
+
+
 
       # # --limit_freq [6/second | 6/min | xx/hour 6/day]
       # local limit_params=''
@@ -2769,7 +2828,280 @@ function iptables_filter2()
     fi
   fi
 
+}
 
+
+function iptables_handle_ssh_server()
+{
+  local rule=
+
+  local interface=
+  local not_interface=
+
+  local ip=
+  local not_ip=
+
+  local port=
+
+  local protocol=
+  local protocol_flag=
+
+  local logstr=
+
+  local type=
+
+
+  local option=$1
+  if ! [[ "${option}" =~ ^-.*$ ]]; then
+    shift
+  else
+    option=
+  fi
+
+  local additional=
+  local cursor=
+	while [ $# -gt 0 ]; do
+		case $1 in
+
+      --type )
+        cursor=$1
+				shift
+        type=$1
+			;;
+
+      --rule )
+        cursor=$1
+				shift
+        rule=$1
+			;;
+
+      --interface )
+        cursor=$1
+				shift
+        interface=$1
+			;;
+
+      --not-interface )
+        cursor=$1
+				shift
+        not_interface=$1
+			;;
+
+      --ip )
+        cursor=$1
+				shift
+        ip=$1
+			;;
+
+      --no-ip )
+        cursor=$1
+				shift
+        not_ip=$1
+			;;
+      
+      --port )
+        cursor=$1
+				shift
+        port=$1
+			;;
+
+      --proto )
+        cursor=$1
+				shift
+				protocol=$1
+			;;
+
+      --log )
+        cursor=$1
+				shift
+				logstr=$1
+			;;
+
+			--proto-flag )
+        cursor=$1
+				shift
+        protocol_flag=$1
+			;;
+
+      ####################
+      # For additional params
+      ####################
+			*)
+        if [[ "${cursor}" == '--proto' ]] && [ "${protocol}" == 'tcp' ] && [ $1 == '--syn' ]; then
+          protocol="${protocol} $1"
+        elif [[ "${cursor}" == '--proto-flag' ]]; then
+          protocol_flag="${protocol_flag} $1"
+        else
+          cursor='<additional>' # special cursor for additional params
+          additional="${additional} $1"
+        fi
+				;;
+		esac
+		shift
+	done
+
+
+  # fix params
+  ####################
+
+  # fix port
+  if [ -z "${port}" ]; then
+    #if not provide a port number, try read port num from config
+    port=$(iptables_config rule.SSH --read --key port)
+  fi
+  if [ -z "${port}" ]; then
+    #if no port num from config file. try use default port number
+    port="${SSH}"
+  fi
+  if [ -z "${port}" ]; then
+    echo_fatal "Failed to find a valid port number on SSH server"
+  fi
+
+
+  # fix rule
+  local rule_in=INPUT
+  local rule_out=OUTPUT
+  if [ -n "${rule}" ]; then
+    if strcontains "${rule}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
+      echo_fatal "Can not use rule with name '${rule}'. "
+    else
+      rule_in="${rule}"_in
+      rule_out="${rule}"_out
+    fi
+  fi
+
+
+
+  # params
+  ####################
+
+  local in_params=''
+  local out_params=''
+
+  # interface
+  if [[ -n "${inter_in_list}" ]] && [[ "${inter_in_list}" != '*' ]]; then
+    in_params="${in_params} --interface-in ${inter_in_list}"
+    out_params="${out_params} --interface-out ${inter_in_list}"
+  fi
+  if [ -n "${not_interface}" ]; then
+    in_params="${in_params} --not-interface-in ${not_interface}"
+    out_params="${out_params} --not-interface-out ${not_interface}"
+  fi
+
+  # ip
+  if [[ -n "${ip_in_list}" ]] && [[ "${ip_in_list}" != '*' ]]; then
+      in_params="${in_params} --ip-from ${ip_in_list}"
+      out_params="${out_params} --ip-to ${ip_in_list}"
+  fi
+  if [ -n "${not_ip}" ]; then
+      in_params="${in_params} --not-ip-from ${not_ip}"
+      out_params="${out_params} --not-ip-to ${not_ip}"
+  fi
+
+  # port
+  local in_port_params=''
+  local out_port_params=''
+  if [ -n "${port}" ]; then
+    in_port_params="--port-to ${port}"
+    out_port_params="--port-from ${port}"
+    in_params="${in_params} ${in_port_params}"
+    out_params="${out_params} --port-from ${port}"
+  fi
+
+  #rule
+  # local rule_params=''
+  local rule_in_params=''
+  local rule_out_params=''
+  if [ -n "${rule_in}" ]; then
+    rule_in_params="${rule_in_params} --rule ${rule_in}"
+  fi
+  if [ -n "${rule_out}" ]; then
+    rule_out_params="${rule_in_params} --rule ${rule_out}"
+  fi
+
+  #log
+  local log_params=''
+  if [ -n "${logstr}" ]; then
+    log_params="${log_params} --log ${logstr}"
+  fi
+
+
+
+  if strcontains "${option}" 'ACCEPT ENABLE' --ignorecase; then
+
+    echo_noti "Add filter to ACCEPT package on SSH server with rule:${rule}..."
+    #iptables_wrapper --proto tcp --syn ${rule_params} ${in_params} --limit recent-set:ssh_attack --state NEW,ESTABLISHED 
+    #iptables_wrapper REJECT-WITH tcp-reset --proto tcp --syn ${rule_params} ${in_params} --limit recent-check:ssh_attack:60:5 --state NEW,ESTABLISHED ${additional}
+    iptables_wrapper --proto tcp ${rule_in_params} ${in_params} --limit recent-set:ssh_attack --state NEW,ESTABLISHED 
+    iptables_wrapper REJECT-WITH tcp-reset --proto tcp ${rule_in_params} ${in_params} --limit recent-check:ssh_attack:60:5 --state NEW,ESTABLISHED ${log_params} ${additional}
+    iptables_wrapper ACCEPT ${rule_out_params} --proto tcp ${out_params} --state ESTABLISHED ${additional}
+
+    #iptables_wrapper ACCEPT --rule OUTPUT --proto tcp ${out_params} --state ESTABLISHED ${additional}
+
+  else
+
+    ###########################################################
+    # Same as ${CMD} service DROP --proto tcp --port 22
+    ###########################################################
+    echo_noti "Add filter to DROP package on SSH server with rule:${rule}..."
+    iptables_wrapper "${option}" --proto tcp ${rule_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
+    iptables_wrapper "${option}" --proto tcp ${rule_out_params} ${out_params} --state ESTABLISHED ${additional}
+
+  fi
+
+  if [ -n "${rule}" ]; then
+    iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_port_params}
+    iptables_wrapper "${rule_out}" --proto tcp --rule OUTPUT ${out_port_params}
+  fi
+
+  return 0
+
+}
+
+
+function iptables_handle_protocol()
+{
+
+  local type=
+  local protocol_name=
+  local additional=
+
+  local option=$1
+  if ! [[ "${option}" =~ ^-.*$ ]]; then
+    shift
+  else
+    option=
+  fi
+
+
+	while [ $# -gt 0 ]; do
+		case $1 in
+
+      --type )
+				shift
+        type=$1
+			;;
+
+      --proto-name )
+				shift
+				protocol_name=$1
+			;;
+
+			*)
+        additional="${additional} $1"
+      ;;
+		esac
+		shift
+	done
+
+
+
+  if [ "${type}" == 'server' ] && [ "${protocol_name}" == 'ssh' ]; then
+    iptables_handle_ssh_server ${option} --type ${type} ${additional}
+    return $?
+  fi
+
+  return 1
 }
 
 
@@ -2783,6 +3115,9 @@ function iptables_wall()
   local port=
   local net=
 
+  local protocol=
+  local protocol_flag=
+
 
   local log=false  # TODO
   local log_prefix=$1 # TODO
@@ -2790,6 +3125,7 @@ function iptables_wall()
   local info_level=
   local show=false
 
+  local additional=
   local show_help=false
 
   local type=$1
@@ -2835,54 +3171,76 @@ function iptables_wall()
 
   local cursor=
 	while [ $# -gt 0 ]; do
-    cursor=$1
+    
 		case $1 in
 
       --interface )
+        cursor=$1
 				shift
         interface=$1
 			;;
 
       --not-interface )
+        cursor=$1
 				shift
         not_interface=$1
 			;;
 
       --force-ip )
+        cursor=$1
 				shift
         force_ip=true
 			;;
 
       --ip )
+        cursor=$1
 				shift
         ip=$1
 			;;
 
-      --no-ip )
+      --not-ip )
+        cursor=$1
 				shift
         not_ip=$1
 			;;
       
       --net )
+        cursor=$1
 				shift
         net=$1
 			;;
 
       --port )
+        cursor=$1
 				shift
         port=$1
 			;;
 
+      --proto )
+        cursor=$1
+				shift
+				protocol=$1
+			;;
+
+			--proto-flag )
+        cursor=$1
+				shift
+        protocol_flag=$1
+			;;
+
       --list )
+        cursor=$1
         show=true
       ;;
 
       --info-level )
+        cursor=$1
         shift
         info_level=$1
       ;;
 
       --help )
+        cursor=$1
         show_help=true
       ;;
 
@@ -2890,57 +3248,63 @@ function iptables_wall()
       # block optional for iptables_filter 
       ####################
 
-			--rule )
-				shift
-        echo_fatal "Can not use ${cursor} with ${CMD} wall"
-			;;
 
       --interface-in )
+        cursor=$1
 				shift
         echo_fatal "Can not use ${cursor} with ${CMD} wall"
 			;;
 
       --interface-out )
+        cursor=$1
 				shift
         echo_fatal "Can not use ${cursor} with ${CMD} wall"
 			;;
 
       --not-interface-in )
+        cursor=$1
 				shift
         echo_fatal "Can not use ${cursor} with ${CMD} wall"
 			;;
 
       --not-interface-out )
+        cursor=$1
 				shift
         echo_fatal "Can not use ${cursor} with ${CMD} wall"
 			;;
 
       --ip-from )
+        cursor=$1
 				shift
         echo_fatal "Can not use ${cursor} with ${CMD} wall"
       ;;
 
       --not-ip-from )
+        cursor=$1
 				shift
         echo_fatal "Can not use ${cursor} with ${CMD} wall"
       ;;
 
       --ip-to )
+        cursor=$1
 				shift
         echo_fatal "Can not use ${cursor} with ${CMD} wall"
       ;;
 
       --not-ip-to )
+        cursor=$1
 				shift
         echo_fatal "Can not use ${cursor} with ${CMD} wall"
       ;;
 
       --port-from )
+        cursor=$1
 				shift
         echo_fatal "Can not use ${cursor} with ${CMD} wall"
       ;;
 
       --port-to )
+        cursor=$1
 				shift
         echo_fatal "Can not use ${cursor} with ${CMD} wall"
       ;;
@@ -2949,11 +3313,19 @@ function iptables_wall()
       # For additional params
       ####################
 			*)
-        additional="${additional} $1"
+        if [[ "${cursor}" == '--proto' ]] && [ "${protocol}" == 'tcp' ] && [ $1 == '--syn' ]; then
+          protocol="${protocol} $1"
+        elif [[ "${cursor}" == '--proto-flag' ]]; then
+          protocol_flag="${protocol_flag} $1"
+        else
+          cursor='<additional>' # special cursor for additional params
+          additional="${additional} $1"
+        fi
 				;;
 		esac
 		shift
 	done
+
 
 
   if ${show_help}; then
@@ -2983,6 +3355,7 @@ function iptables_wall()
       local -a ip_list
       # inter_list=(\*)
       # ip_list=(\*)
+
 
       function _wall_handle_inter()
       {
@@ -3163,71 +3536,113 @@ function iptables_wall()
       fi
 
 
+      # protocol
+      local protocol_params=
+      local protocol_name=
+      if [ -n "${protocol}" ]; then
+        protocol_params="${protocol_params} --proto ${protocol}"
+        protocol_name="--proto-name $(echo "${protocol}" | awk '{print $1}' | tr '[:upper:]' '[:lower:]' | grep -o "[^ ]\+\( \+[^ ]\+\)*")"
+      fi
+      if [ -n "${protocol_flag}" ]; then
+        protocol_params="${protocol_params} --proto-flag ${protocol_flag}"
+      fi
+
+
       for inter_in_list in "${inter_list[@]}"; do
         for ip_in_list in "${ip_list[@]}"; do
 
-          local in_params=''
-          local out_params=''
+          local hook_params=''
 
-          # interface
-          if [[ -n "${inter_in_list}" ]] && [[ "${inter_in_list}" != '*' ]]; then
-            in_params="${in_params} --interface-in ${inter_in_list}"
-            out_params="${out_params} --interface-out ${inter_in_list}"
+          # hook inter
+          if [ -n "${inter_in_list}" ] && [ "${inter_in_list}" != '*' ]; then
+            hook_params="${hook_params} --interface ${inter_in_list}"
           fi
           if [ -n "${not_interface}" ]; then
-            in_params="${in_params} --not-interface-in ${not_interface}"
-            out_params="${out_params} --not-interface-out ${not_interface}"
+            hook_params="${hook_params} --not-interface ${not_interface}"
           fi
-
-          # ip
-          if [[ -n "${ip_in_list}" ]] && [[ "${ip_in_list}" != '*' ]]; then
-              in_params="${in_params} --ip-from ${ip_in_list}"
-              out_params="${out_params} --ip-to ${ip_in_list}"
+          
+          # hook ip
+          if [ -n "${ip_in_list}" ] && [ "${ip_in_list}" != '*' ]; then
+            hook_params="${hook_params} --ip ${ip}"
           fi
           if [ -n "${not_ip}" ]; then
-              in_params="${in_params} --not-ip-from ${not_ip}"
-              out_params="${out_params} --not-ip-to ${not_ip}"
+            hook_params="${hook_params} --not-ip ${not_ip}"
+          fi
+          
+          # hook port
+          if [ -n "${port}" ]; then
+            hook_params="${hook_params} --port ${port}"
           fi
 
 
-          if [[ "${type}" == 'server' ]]; then
+          if ! iptables_handle_protocol ${option} --type ${type} ${protocol_name} ${protocol_params} ${hook_params} ${additional}; then
 
-            if [ -n "${port}" ]; then
-              in_params="${in_params} --port-to ${port}"
-              out_params="${out_params} --port-from ${port}"
+            local in_params=''
+            local out_params=''
+
+            # interface
+            if [[ -n "${inter_in_list}" ]] && [[ "${inter_in_list}" != '*' ]]; then
+              in_params="${in_params} --interface-in ${inter_in_list}"
+              out_params="${out_params} --interface-out ${inter_in_list}"
+            fi
+            if [ -n "${not_interface}" ]; then
+              in_params="${in_params} --not-interface-in ${not_interface}"
+              out_params="${out_params} --not-interface-out ${not_interface}"
             fi
 
-            echo_noti 'Add server rule...'
-            iptables_wrapper ${option} --rule INPUT ${in_params} --state NEW,ESTABLISHED ${additional}
-            iptables_wrapper ${option} --rule OUTPUT ${out_params} --state ESTABLISHED ${additional}
-          elif [[ ${type} == 'client' ]]; then
-
-            if [ -n "${port}" ]; then
-              in_params="${in_params} --port-from ${port}"
-              out_params="${out_params} --port-to ${port}"
+            # ip
+            if [[ -n "${ip_in_list}" ]] && [[ "${ip_in_list}" != '*' ]]; then
+                in_params="${in_params} --ip-from ${ip_in_list}"
+                out_params="${out_params} --ip-to ${ip_in_list}"
+            fi
+            if [ -n "${not_ip}" ]; then
+                in_params="${in_params} --not-ip-from ${not_ip}"
+                out_params="${out_params} --not-ip-to ${not_ip}"
             fi
 
-            echo_noti 'Add client rule...'
-            iptables_wrapper ${option} --rule OUTPUT ${out_params} --state NEW,ESTABLISHED ${additional}
-            iptables_wrapper ${option} --rule INPUT ${in_params} --state ESTABLISHED ${additional}
-          elif [[ ${type} == 'incoming' ]]; then
 
-            if [ -n "${port}" ]; then
-              in_params="${in_params} --port-to ${port}"
-            fi
+            if [[ "${type}" == 'server' ]]; then
 
-            echo_noti 'Add incoming rule...'
-            iptables_wrapper "${option}" --rule INPUT${in_params} ${additional}
-          elif [[ ${type} == 'outgoing' ]]; then
-            if [ -n "${port}" ]; then
-              out_params="${out_params} --port-from ${port} --port-to ${port}"
-            fi
+              if [ -n "${port}" ]; then
+                in_params="${in_params} --port-to ${port}"
+                out_params="${out_params} --port-from ${port}"
+              fi
 
-            echo_noti 'Add outgoing rule...'
-            iptables_wrapper "${option}" --rule OUTPUT${out_params} ${additional}
+              echo_noti 'Add server rule...'
+              iptables_wrapper ${option} --rule INPUT ${in_params} ${protocol_params} --state NEW,ESTABLISHED ${additional}
+              iptables_wrapper ${option} --rule OUTPUT ${out_params} ${protocol_params} --state ESTABLISHED ${additional}
+            elif [[ ${type} == 'client' ]]; then
+
+              if [ -n "${port}" ]; then
+                in_params="${in_params} --port-from ${port}"
+                out_params="${out_params} --port-to ${port}"
+              fi
+
+              echo_noti 'Add client rule...'
+              iptables_wrapper ${option} --rule OUTPUT ${out_params} ${protocol_params} --state NEW,ESTABLISHED ${additional}
+              iptables_wrapper ${option} --rule INPUT ${in_params} ${protocol_params} --state ESTABLISHED ${additional}
+            elif [[ ${type} == 'incoming' ]]; then
+
+              if [ -n "${port}" ]; then
+                in_params="${in_params} --port-to ${port}"
+              fi
+
+              echo_noti 'Add incoming rule...'
+              iptables_wrapper "${option}" --rule INPUT ${in_params} ${protocol_params} ${additional}
+            elif [[ ${type} == 'outgoing' ]]; then
+              if [ -n "${port}" ]; then
+                out_params="${out_params} --port-from ${port} --port-to ${port}"
+              fi
+
+              echo_noti 'Add outgoing rule...'
+              iptables_wrapper "${option}" --rule OUTPUT ${out_params} ${protocol_params} ${additional}
+
+            fi # end of 'if [[ "${type}" =='
+
           fi
-        done
-      done
+           
+        done # end of 'for ip_in_list'
+      done # end of 'for inter_in_list'
     fi
   fi
 }

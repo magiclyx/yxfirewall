@@ -72,6 +72,24 @@ sudo ./firewall clear  # 清空所有规则
 sudo ./firewall default DROP --all  # 设置所有规则的默认行为是Drop
 
 
+sudo ./firewall server ACCEPT --proto ssh --rule "TestRule111" --log test:limit:1/s
+sudo iptables -F; sudo iptables -X; sudo iptables -Z
+sudo ./firewall server ACCEPT --proto ssh --log test:limit:1/s
+sudo iptables -F
+sudo iptables -X
+sudo iptables -Z
+sudo ./firewall server DROP --proto ssh --rule "TestRule111" --log test:limit:1/s
+sudo iptables -F
+sudo iptables -X
+sudo iptables -Z
+sudo ./firewall server DROP --proto ssh --log test:limit:1/s
+sudo iptables -F
+sudo iptables -X
+sudo iptables -Z
+# sudo ./firewall server ACCEPT --proto ssh --rule "TestRule111" --limit limit:1/s --limit length:15 --log test
+
+exit 0
+
 
 ###########################################################
 # 放弃来自 $DENY_HOSTS 的访问
@@ -87,7 +105,6 @@ fi
 ###########################################################
 # 攻击防护：隐身扫描
 ###########################################################
-# sudo ./firewall rule create --rule 'STEALTH_SCAN'
 sudo ./firewall filter DROP --rule STEALTH_SCAN --log 'stealth_scan_attack'
 
 # 看似隐身扫描的数据包会跳转到“STEALTH_SCAN”链
@@ -115,7 +132,6 @@ sudo ./firewall incoming DROP --fragment --log 'fragment_packet'
 # 攻击防护：Ping of Death
 ###########################################################
 # 10 次 ping 超过每秒 1 次后丢弃
-# sudo ./firewall rule create --rule 'PING_OF_DEATH'
 sudo ./firewall filter RETURN --rule PING_OF_DEATH --proto icmp --proto-flag echo-request --limit limit-upto:t_PING_OF_DEATH:1/s:10:srcip:::3000
 
 
