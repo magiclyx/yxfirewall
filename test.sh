@@ -73,20 +73,28 @@ sudo ./firewall default DROP --all  # 设置所有规则的默认行为是Drop
 
 
 sudo ./firewall server ACCEPT --proto ssh --rule "TestRule111" --log test:limit:1/s
-sudo iptables -F; sudo iptables -X; sudo iptables -Z
-sudo ./firewall server ACCEPT --proto ssh --log test:limit:1/s
-sudo iptables -F
-sudo iptables -X
-sudo iptables -Z
-sudo ./firewall server DROP --proto ssh --rule "TestRule111" --log test:limit:1/s
-sudo iptables -F
-sudo iptables -X
-sudo iptables -Z
-sudo ./firewall server DROP --proto ssh --log test:limit:1/s
-sudo iptables -F
-sudo iptables -X
-sudo iptables -Z
+#sudo ./firewall server ACCEPT --proto ssh --log test:limit:1/s
+
+#sudo ./firewall server DROP --proto ssh --rule "TestRule111" --log test:limit:1/s
+# sudo ./firewall server DROP --proto ssh --log test:limit:1/s
+
 # sudo ./firewall server ACCEPT --proto ssh --rule "TestRule111" --limit limit:1/s --limit length:15 --log test
+
+# echo '================================================================================================================='
+# sudo ./firewall client ACCEPT --proto ssh --rule "TestRule111" --limit limit:1/s --limit length:15 --log test
+# echo '================================================================================================================='
+
+
+# sudo iptables -F; sudo iptables -X; sudo iptables -Z
+# sudo iptables -F
+# sudo iptables -X
+# sudo iptables -Z
+# sudo iptables -F
+# sudo iptables -X
+# sudo iptables -Z
+# sudo iptables -F
+# sudo iptables -X
+# sudo iptables -Z
 
 exit 0
 
