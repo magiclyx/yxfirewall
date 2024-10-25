@@ -2812,7 +2812,7 @@ function iptables_wrapper()
       fi
 
       if [ -n "${logstr}" ]; then
-
+        
         local log_limit_params=''
         local log_prefix=$(echo "${logstr}" | awk 'BEGIN{FS=":"}{print $1}')
 
@@ -3132,8 +3132,6 @@ function iptables_wall()
       ####################
       # block optional for iptables_filter 
       ####################
-
-
       --interface-in )
         cursor=$1
 				shift
@@ -5081,6 +5079,7 @@ function handle_ssh_server()
 	done
 
 
+
   # fix params
   ####################
   # # fix port
@@ -5163,12 +5162,20 @@ function handle_ssh_server()
 
 
 
+
   if strcontains "${option}" 'ACCEPT ENABLE' --ignorecase; then
 
     echo_noti "Add filter to ACCEPT package on SSH server with rule:${rule}..."
     #iptables_wrapper --proto tcp --syn ${rule_params} ${in_params} --limit recent-set:ssh_attack --state NEW,ESTABLISHED 
     #iptables_wrapper REJECT-WITH tcp-reset --proto tcp --syn ${rule_params} ${in_params} --limit recent-check:ssh_attack:60:5 --state NEW,ESTABLISHED ${additional}
 
+    ###########################################################
+    # 攻击防护：SSH 暴力破解
+    # SSH为使用密码认证的服务器准备密码暴力攻击。
+    # 每分钟只允许 5 次连接尝试。
+    # REJECT 而不是 DROP 以防止 SSH 客户端重复重新连接。
+    # 如果 SSH 服务器开启了密码认证，请取消注释掉以下内容。
+    ###########################################################
     iptables_wrapper --proto tcp ${rule_in_params} ${in_params} --limit recent-set:ssh_attack --state NEW,ESTABLISHED 
     iptables_wrapper REJECT-WITH tcp-reset --proto tcp ${rule_in_params} ${in_params} --limit recent-check:ssh_attack:60:5 --state NEW,ESTABLISHED ${log_params} ${additional}
     iptables_wrapper ACCEPT ${rule_out_params} --proto tcp ${out_params} --state ESTABLISHED ${additional}
