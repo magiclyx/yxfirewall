@@ -155,7 +155,11 @@ function linux_type()
 ####################################################################################################
 
 function _sed_escape() {
-	sed -e 's/[]\/$*.^[]/\\&/g'
+  sed -e 's/[][\/^$?*.]/\\&/g'
+}
+
+function _grep_escape() {
+  sed -e 's/[][\/^$?+*.]/\\&/g' 
 }
 
 
@@ -194,7 +198,7 @@ function has_cfg_haskey()
 	fi
 
 	
-	local fixkey=$(echo "${key}" | _sed_escape)
+	local fixkey=$(echo "${key}" | _grep_escape)
 	test -f "${file}" && grep -Eq "^\s*${fixkey}\s*=\s*.*$" "${file}" 
 }
 
@@ -232,8 +236,9 @@ function read_cfg_key()
 	fi
 
 
-	local fixkey=$(echo "${key}" | _sed_escape)
-	test -f "${file}" && grep -E "^\s*${fixkey}\s*=\s*" "${file}" | sed -e  "s/[[:space:]]*${fixkey}[[:space:]]*=[[:space:]]*//g" | grep -o "[^ ]\+\( \+[^ ]\+\)*"
+	local sed_fixkey=$(echo "${key}" | _sed_escape)
+	local grep_fixkey=$(echo "${key}" | _grep_escape)
+	test -f "${file}" && grep -E "^\s*${grep_fixkey}\s*=\s*" "${file}" | sed -e  "s/[[:space:]]*${sed_fixkey}[[:space:]]*=[[:space:]]*//g" | grep -o "[^ ]\+\( \+[^ ]\+\)*"
 }
 
 function delete_cfg_key()
@@ -367,24 +372,25 @@ function write_cfg_key()
 	fi
 
 
-	local fixkey=$(echo "${key}" | _sed_escape)
-	if test -f "${file}" &&  grep -Eq "^\s*${fixkey}\s*=\s*${val}\s*$" "${file}"; then # Testfile exist and text 'key = val' exist, do nothing ...
+	local sed_fixkey=$(echo "${key}" | _sed_escape)
+	local grep_fixkey=$(echo "${key}" | _grep_escape)
+	if test -f "${file}" &&  grep -Eq "^\s*${grep_fixkey}\s*=\s*${val}\s*$" "${file}"; then # Testfile exist and text 'key = val' exist, do nothing ...
 		:
-	elif test -f "${file}" && grep -Eq "^\s*#\s*${fixkey}\s*=.*$" "${file}"; then #Test file exist and text '# key = xxx' exist
-		if 	grep -Eq "^\s*#\s*${fixkey}\s*=\s*${val}\s*$" "${file}"; then #Test exist '# key = val', remove '#' and format line.
+	elif test -f "${file}" && grep -Eq "^\s*#\s*${grep_fixkey}\s*=.*$" "${file}"; then #Test file exist and text '# key = xxx' exist
+		if 	grep -Eq "^\s*#\s*${grep_fixkey}\s*=\s*${val}\s*$" "${file}"; then #Test exist '# key = val', remove '#' and format line.
 			if [[ $(os_type) == 'osx' ]]; then
-				sed -i "" "s/^[[:space:]]*#*[[:space:]]*${fixkey}[[:space:]]*=.*/${fixkey} = ${val}/g" "${file}"
+				sed -i "" "s/^[[:space:]]*#*[[:space:]]*${sed_fixkey}[[:space:]]*=.*/${sed_fixkey} = ${val}/g" "${file}"
 			else
-				sed -i "s/^[[:space:]]*#*[[:space:]]*${fixkey}[[:space:]]*=.*/${fixkey} = ${val}/g" "${file}"
+				sed -i "s/^[[:space:]]*#*[[:space:]]*${sed_fixkey}[[:space:]]*=.*/${sed_fixkey} = ${val}/g" "${file}"
 			fi
 		else # Text '# key=???' exist, append 'key = val' below.
 			if [[ $(os_type) == 'osx' ]]; then
 			    # 因为sed在OSX上的问题，这里不得不换行!!!
-				sed -i "" "/^[[:space:]]*#*[[:space:]]*${fixkey}[[:space:]]*=.*/ a\\
-				${fixkey} = ${val}\\
+				sed -i "" "/^[[:space:]]*#*[[:space:]]*${sed_fixkey}[[:space:]]*=.*/ a\\
+				${sed_fixkey} = ${val}\\
 				" "${file}"
 			else
-				sed -i "/^[[:space:]]*#*[[:space:]]*${fixkey}[[:space:]]*=.*/ a ${fixkey} = ${val}" "${file}"
+				sed -i "/^[[:space:]]*#*[[:space:]]*${sed_fixkey}[[:space:]]*=.*/ a ${sed_fixkey} = ${val}" "${file}"
 			fi
 		fi
 	else
