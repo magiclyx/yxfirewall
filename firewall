@@ -2834,11 +2834,11 @@ function iptables_wrapper()
         fi
 
         if [ -n "${log_prefix}" ]; then
-          echo_cmd "${IPTABLES} -A ${rule}${fragment_params}${interface_params}${protocol_params}${mac_params}${ip_params}${port_params}${log_limit_params}${state_params} -j LOG --log-prefix ${log_prefix}:${additional}"
+          echo_cmd "${IPTABLES} -A ${rule}${fragment_params}${interface_params}${protocol_params}${mac_params}${ip_params}${port_params}${state_params}${log_limit_params} -j LOG --log-prefix ${log_prefix}:${additional}"
         fi
       fi
 
-      echo_cmd "${IPTABLES} -A ${rule}${fragment_params}${interface_params}${protocol_params}${mac_params}${ip_params}${port_params}${limit_params}${state_params}${option_params}${additional}"
+      echo_cmd "${IPTABLES} -A ${rule}${fragment_params}${interface_params}${protocol_params}${mac_params}${ip_params}${port_params}${state_params}${limit_params}${option_params}${additional}"
 
     fi # end of if ${show};
 
@@ -5182,11 +5182,12 @@ function handle_ssh_server()
     # REJECT 而不是 DROP 以防止 SSH 客户端重复重新连接。
     # 如果 SSH 服务器开启了密码认证，请取消注释掉以下内容。
     ###########################################################
-    iptables_wrapper --proto tcp ${rule_in_params} ${in_params} --limit recent-set:ssh_attack --state NEW,ESTABLISHED 
-    iptables_wrapper REJECT-WITH tcp-reset --proto tcp ${rule_in_params} ${in_params} --limit recent-check:ssh_attack:60:5 --state NEW,ESTABLISHED ${log_params} ${additional}
-    iptables_wrapper ACCEPT ${rule_out_params} --proto tcp ${out_params} --state ESTABLISHED ${additional}
+    # REJECT-WITH tcp-reset
+    iptables_wrapper REJECT-WITH icmp-port-unreachable --proto tcp ${rule_in_params} ${in_params} --limit recent-check:ssh_attack:60:5 --state NEW ${log_params} ${additional}
+    iptables_wrapper --proto tcp ${rule_in_params} ${in_params} --limit recent-set:ssh_attack --state NEW 
 
-    #iptables_wrapper ACCEPT --rule OUTPUT --proto tcp ${out_params} --state ESTABLISHED ${additional}
+    iptables_wrapper ACCEPT --proto tcp ${rule_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
+    iptables_wrapper ACCEPT ${rule_out_params} --proto tcp ${out_params} --state ESTABLISHED ${additional}
 
   else
 

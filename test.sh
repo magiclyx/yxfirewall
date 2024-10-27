@@ -72,18 +72,26 @@ sudo ./firewall clear  # 清空所有规则
 sudo ./firewall default DROP --all  # 设置所有规则的默认行为是Drop
 
 
-sudo ./firewall server ACCEPT --proto ssh --rule "TestRule111" --log test:limit:1/s
-#sudo ./firewall server ACCEPT --proto ssh --log test:limit:1/s
+# TODO 添加禁止SSH-client 的命令。 这个不能用 firewall Client, 会冲突
+# TODO 测试 SSH WALL
+# TODO ICMP ping 的命令
 
-#sudo ./firewall server DROP --proto ssh --rule "TestRule111" --log test:limit:1/s
-# sudo ./firewall server DROP --proto ssh --log test:limit:1/s
 
-# sudo ./firewall server ACCEPT --proto ssh --rule "TestRule111" --limit limit:1/s --limit length:15 --log test
+###########################################################
+# 攻击防护：SSH 暴力破解
+# 为使用密码认证的服务器准备密码暴力攻击。
+# 如果 SSH 服务器开启了密码认证，请取消注释掉以下内容。
+##################################################
+sudo ./firewall Server ACCEPT --proto ssh --rule "SSH_SRV" --ip 10.12.13.2 --log ssh_brute_force:-
 
-# echo '================================================================================================================='
-# sudo ./firewall client ACCEPT --proto ssh --rule "TestRule111" --limit limit:1/s --limit length:15 --log test
-# echo '================================================================================================================='
 
+
+###########################################################
+# 攻击防护：Ping of Death
+###########################################################
+#sudo ./firewall Server --proto icmp --rule "ICMP_SRV"
+
+sudo ./firewall filter --list
 
 # sudo iptables -F; sudo iptables -X; sudo iptables -Z
 # sudo iptables -F
@@ -95,6 +103,7 @@ sudo ./firewall server ACCEPT --proto ssh --rule "TestRule111" --log test:limit:
 # sudo iptables -F
 # sudo iptables -X
 # sudo iptables -Z
+
 
 exit 0
 
