@@ -3509,6 +3509,12 @@ function iptables_wall()
               echo_noti 'Add server rule...'
               iptables_wrapper ${option} --rule ${rule_in} ${in_params} ${protocol_params} ${limit_params} --state NEW,ESTABLISHED ${log_params} ${additional}
               iptables_wrapper ${option} --rule ${rule_out} ${out_params} ${protocol_params} ${limit_params} --state ESTABLISHED ${log_params} ${additional}
+
+              if [ -n "${rule}" ]; then
+                iptables_wrapper ${rule_in} --rule INPUT ${in_params} ${protocol_params}
+                iptables_wrapper ${rule_out} --rule OUTPUT ${out_params} ${protocol_params}
+              fi
+
             elif [[ ${type} == 'client' ]]; then
 
               if [ -n "${port}" ]; then
