@@ -72,18 +72,27 @@ sudo ./firewall clear  # 清空所有规则
 sudo ./firewall default DROP --all  # 设置所有规则的默认行为是Drop
 
 
-# TODO 添加禁止SSH-client 的命令。 这个不能用 firewall Client, 会冲突
-# TODO 测试 SSH WALL
-# TODO ICMP ping 的命令
+###########################################################
+# 攻击防护：bad package
+###########################################################
+sudo ./firewall Server DROP --rule "PKG_SRV" --proto wall-pkg --log  firewall_invalid_package:-
+
+###########################################################
+# 攻击防护：stealth scan
+###########################################################
+sudo ./firewall Server DROP  --rule "PKG_SCAN" --proto wall-scan --log firewall_stealth_scan:-
 
 
 ###########################################################
 # 攻击防护：SSH 暴力破解
 # 为使用密码认证的服务器准备密码暴力攻击。
 # 如果 SSH 服务器开启了密码认证，请取消注释掉以下内容。
+#
+# TODO 添加禁止SSH-client 的命令。 这个不能用 firewall Client, 会冲突
+# TODO 测试 SSH WALL
+# TODO ICMP ping 的命令
 ##################################################
 sudo ./firewall Server ACCEPT --proto ssh --rule "SSH_SRV" --ip 10.12.13.2 --log ssh_brute_force:-
-
 
 
 ###########################################################
