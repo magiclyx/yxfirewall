@@ -82,6 +82,12 @@ sudo ./firewall Server DROP --rule "PKG_SRV" --proto wall-pkg --log  firewall_in
 ###########################################################
 sudo ./firewall Server DROP  --rule "PKG_SCAN" --proto wall-scan --log firewall_stealth_scan:-
 
+###########################################################
+# 攻击防护：icmp
+# 默认地,所有丢弃的 ICMP 包都不记录日志. "冲击波" 以及 "蠕虫" 会导致系统发起大量
+###########################################################
+sudo ./firewall Server ACCEPT  --rule "ICMP_SRV" --proto icmp
+sudo ./firewall Client DROP --rule "ICMP_CLIENT" --proto icmp
 
 ###########################################################
 # 攻击防护：SSH 暴力破解
