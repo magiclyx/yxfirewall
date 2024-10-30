@@ -5614,6 +5614,200 @@ function handle_scan_server()
   return 0
 }
 
+function handle_broadcast_server()
+{
+  local rule=
+
+  local interface=
+  local not_interface=
+
+  local ip=
+  local not_ip=
+
+  local port=
+
+  local protocol=
+  local protocol_flag=
+
+  local logstr=
+
+  local type=
+
+
+  local option=$1
+  if ! [[ "${option}" =~ ^-.*$ ]]; then
+    shift
+  else
+    option=
+  fi
+
+  local additional=
+  local cursor=
+	while [ $# -gt 0 ]; do
+		case $1 in
+
+      --type )
+        cursor=$1
+				shift
+        type=$1
+			;;
+
+      --rule )
+        cursor=$1
+				shift
+        rule=$1
+			;;
+
+      --interface )
+        cursor=$1
+				shift
+        interface=$1
+			;;
+
+      --not-interface )
+        cursor=$1
+				shift
+        not_interface=$1
+			;;
+
+      --ip )
+        cursor=$1
+				shift
+        ip=$1
+			;;
+
+      --no-ip )
+        cursor=$1
+				shift
+        not_ip=$1
+			;;
+      
+      --port )
+        cursor=$1
+				shift
+        port=$1
+			;;
+
+      --proto )
+        cursor=$1
+				shift
+				protocol=$1
+			;;
+
+      --log )
+        cursor=$1
+				shift
+				logstr=$1
+			;;
+
+			--proto-flag )
+        cursor=$1
+				shift
+        protocol_flag=$1
+			;;
+
+      ####################
+      # For additional params
+      ####################
+			*)
+        if [[ "${cursor}" == '--proto' ]] && [ "${protocol}" == 'tcp' ] && [ $1 == '--syn' ]; then
+          protocol="${protocol} $1"
+        elif [[ "${cursor}" == '--proto-flag' ]]; then
+          protocol_flag="${protocol_flag} $1"
+        else
+          cursor='<additional>' # special cursor for additional params
+          additional="${additional} $1"
+        fi
+				;;
+		esac
+		shift
+	done
+
+
+
+  # fix rule
+  local rule_in=INPUT
+  local rule_out=OUTPUT
+  if [ -n "${rule}" ]; then
+    if strcontains "${rule}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
+      echo_fatal "Can not use rule with name '${rule}'. "
+    else
+      rule_in="${rule}"_in
+      rule_out="${rule}"_out
+    fi
+  fi
+
+
+
+  # params
+  ####################
+
+  local in_params=''
+  local out_params=''
+
+  # interface
+  if [[ -n "${inter_in_list}" ]] && [[ "${inter_in_list}" != '*' ]]; then
+    in_params="${in_params} --interface-in ${inter_in_list}"
+    out_params="${out_params} --interface-out ${inter_in_list}"
+  fi
+  if [ -n "${not_interface}" ]; then
+    in_params="${in_params} --not-interface-in ${not_interface}"
+    out_params="${out_params} --not-interface-out ${not_interface}"
+  fi
+
+  # ip
+  if [[ -n "${ip_in_list}" ]] && [[ "${ip_in_list}" != '*' ]]; then
+      in_params="${in_params} --ip-from ${ip_in_list}"
+      out_params="${out_params} --ip-to ${ip_in_list}"
+  fi
+  if [ -n "${not_ip}" ]; then
+      in_params="${in_params} --not-ip-from ${not_ip}"
+      out_params="${out_params} --not-ip-to ${not_ip}"
+  fi
+
+  # port
+  local in_port_params=''
+  local out_port_params=''
+  if [ -n "${port}" ]; then
+    in_port_params="--port-to ${port}"
+    out_port_params="--port-from ${port}"
+    in_params="${in_params} ${in_port_params}"
+    out_params="${out_params} --port-from ${port}"
+  fi
+
+  #rule
+  # local rule_params=''
+  local rule_in_params=''
+  local rule_out_params=''
+  if [ -n "${rule_in}" ]; then
+    rule_in_params="${rule_in_params} --rule ${rule_in}"
+  fi
+  if [ -n "${rule_out}" ]; then
+    rule_out_params="${rule_in_params} --rule ${rule_out}"
+  fi
+
+  #log
+  local log_params=''
+  if [ -n "${logstr}" ]; then
+    log_params="${log_params} --log ${logstr}"
+  fi
+
+  ###########################################################
+  # 发往所有主机（广播地址、组播地址）的数据包
+  ###########################################################
+  iptables_wrapper ${option} --ip-to 192.168.1.255 ${rule_in_params} ${in_params} ${log_params} ${additional}
+  iptables_wrapper ${option} --ip-to 255.255.255.255 ${rule_in_params} ${in_params} ${log_params} ${additional}
+  iptables_wrapper ${option} --ip-to 224.0.0.1 ${rule_in_params} ${in_params} ${log_params} ${additional}
+
+
+  if [ -n "${rule}" ]; then
+    iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_port_params}
+  fi
+
+
+  return 0
+}
+
 function handle_icmp_server_and_client()
 {
   local rule=
@@ -5854,6 +6048,16 @@ function scan_handler()
   encode_handler scan_map
 }
 
+function broadcast_handler()
+{
+  local -A broadcast_map
+  broadcast_map=(
+    [server]='handle_broadcast_server'
+  )
+
+  encode_handler broadcast_map
+}
+
 function icmp_handler()
 {
   local -A icmp_map
@@ -5886,9 +6090,10 @@ if [ -n "${info_level}" ]; then
 fi
 
 # regist build-in handler
-regist_handler SSH ssh_handler
 regist_handler WALL-PKG pkg_handler
 regist_handler WALL-SCAN scan_handler
+regist_handler WALL-BROADCAST broadcast_handler
+regist_handler SSH ssh_handler
 regist_handler ICMP icmp_handler
 
 # echo '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'

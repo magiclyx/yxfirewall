@@ -73,6 +73,11 @@ sudo ./firewall default DROP --all  # 设置所有规则的默认行为是Drop
 
 
 ###########################################################
+# 攻击防护：broadcast
+###########################################################
+sudo ./firewall Server DROP --rule "BROADCAST_SRV" --proto wall-broadcast --log firewall_broadcast:-
+
+###########################################################
 # 攻击防护：bad package
 ###########################################################
 sudo ./firewall Server DROP --rule "PKG_SRV" --proto wall-pkg --log  firewall_invalid_package:-
@@ -87,7 +92,7 @@ sudo ./firewall Server DROP  --rule "PKG_SCAN" --proto wall-scan --log firewall_
 # 默认地,所有丢弃的 ICMP 包都不记录日志. "冲击波" 以及 "蠕虫" 会导致系统发起大量
 ###########################################################
 sudo ./firewall Server ACCEPT  --rule "ICMP_SRV" --proto icmp
-sudo ./firewall Client DROP --rule "ICMP_CLIENT" --proto icmp
+# sudo ./firewall Client DROP --rule "ICMP_CLIENT" --proto icmp
 
 ###########################################################
 # 攻击防护：SSH 暴力破解
@@ -101,10 +106,6 @@ sudo ./firewall Client DROP --rule "ICMP_CLIENT" --proto icmp
 sudo ./firewall Server ACCEPT --proto ssh --rule "SSH_SRV" --ip 10.12.13.2 --log ssh_brute_force:-
 
 
-###########################################################
-# 攻击防护：Ping of Death
-###########################################################
-#sudo ./firewall Server --proto icmp --rule "ICMP_SRV"
 
 sudo ./firewall filter --list
 
