@@ -5387,7 +5387,7 @@ function handle_synflood_server()
   return 0
 }
 
-function handle_scan_server()
+function handle_stealscan_server()
 {
   local rule=
 
@@ -5566,31 +5566,34 @@ function handle_scan_server()
   fi
 
 
-  ##########################################
-  # 恶意 TCP 请求
-  ##########################################
-  #
-  # 所有的 TCP 请求都必须经过以下规则过滤. 任何新请求都
-  # 必须以一个 sync 包开始.
-  # 如果不是这样的话,很可能表示这是一个扫描动作,这些有 
-  # NEW 状态的包会被丢弃
-  #
+  if strcontains "${option}" 'Block Drop Disable' --ignorecase; then
+    ##########################################
+    # 恶意 TCP 请求
+    ##########################################
+    #
+    # 所有的 TCP 请求都必须经过以下规则过滤. 任何新请求都
+    # 必须以一个 sync 包开始.
+    # 如果不是这样的话,很可能表示这是一个扫描动作,这些有 
+    # NEW 状态的包会被丢弃
+    #
 
-  iptables_wrapper ${option} --proto tcp ! --syn ${rule_in_params} ${in_params} --state NEW ${log_params} ${additional}
-  iptables_wrapper ${option} --proto tcp --proto-flag ALL NONE ${rule_in_params} ${in_params} ${log_params} ${additional}
-  iptables_wrapper ${option} --proto tcp --proto-flag ALL ALL ${rule_in_params} ${in_params} ${log_params} ${additional}
-  iptables_wrapper ${option} --proto tcp --proto-flag ALL FIN,URG,PSH ${rule_in_params} ${in_params} ${log_params} ${additional}
-  iptables_wrapper ${option} --proto tcp --proto-flag ALL SYN,RST,ACK,FIN,URG ${rule_in_params} ${in_params} ${log_params} ${additional}
-  iptables_wrapper ${option} --proto tcp --proto-flag SYN,RST SYN,RST ${rule_in_params} ${in_params} ${log_params} ${additional}
-  iptables_wrapper ${option} --proto tcp --proto-flag SYN,FIN SYN,FIN ${rule_in_params} ${in_params} ${log_params} ${additional}
-  iptables_wrapper RETURN ${rule_in_params}
+    iptables_wrapper DROP --proto tcp ! --syn ${rule_in_params} ${in_params} --state NEW ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag ALL NONE ${rule_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag ALL ALL ${rule_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag ALL FIN,URG,PSH ${rule_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag ALL SYN,RST,ACK,FIN,URG ${rule_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag SYN,RST SYN,RST ${rule_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag SYN,FIN SYN,FIN ${rule_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper RETURN ${rule_in_params} ${in_params}
 
 
-  # iptables_wrapper ${option} --proto ALL ${rule_in_params} ${in_params} --state INVALID ${log_params} ${additional}
-  # iptables_wrapper RETURN --proto ALL ${rule_in_params}
-  if [ -n "${rule}" ]; then
-    iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_params}
+    # iptables_wrapper ${option} --proto ALL ${rule_in_params} ${in_params} --state INVALID ${log_params} ${additional}
+    # iptables_wrapper RETURN --proto ALL ${rule_in_params}
+    if [ -n "${rule}" ]; then
+      iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_params}
+    fi
   fi
+
 
 
   return 0
@@ -6711,14 +6714,14 @@ function synflood_handler()
   encode_handler synflood_map
 }
 
-function scan_handler()
+function stealscan_handler()
 {
-  local -A scan_map
-  scan_map=(
-    [server]='handle_scan_server'
+  local -A stealscan_map
+  stealscan_map=(
+    [server]='handle_stealscan_server'
   )
 
-  encode_handler scan_map
+  encode_handler stealscan_map
 }
 
 function broadcast_handler()
@@ -6800,7 +6803,7 @@ fi
 # regist build-in handler
 regist_handler WALL-PKG pkg_handler
 regist_handler WALL-SYNFLOOD synflood_handler
-regist_handler WALL-SCAN scan_handler
+regist_handler WALL-SCAN stealscan_handler
 regist_handler WALL-BROADCAST broadcast_handler
 regist_handler ICMP icmp_handler
 regist_handler SSH ssh_handler
