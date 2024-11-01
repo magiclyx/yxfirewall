@@ -5357,11 +5357,16 @@ function handle_synflood_server()
     log_params="${log_params} --log ${logstr}"
   fi
 
-  if strcontains "${option}" 'DROP DISABLE DENY' --ignorecase; then
-    iptables_wrapper RETURN --proto tcp --syn ${rule_in_params} --limit limit-upto:syn_flood:200/s:3:srcip:::300000
-    iptables_wrapper LOG ${log_params} ${rule_in_params}
-    iptables_wrapper DROP ${rule_in_params}
+  if strcontains "${option}" 'Drop Disable Block' --ignorecase; then
+    iptables_wrapper RETURN --proto tcp --syn ${rule_in_params} ${in_params} --limit limit-upto:syn_flood:200/s:3:srcip:::300000
+    iptables_wrapper LOG ${log_params} ${rule_in_params} ${in_params}
+    iptables_wrapper DROP ${rule_in_params} ${in_params}
+
+    if [ -n "${rule}" ]; then
+      iptables_wrapper "${rule_in}" --proto tcp --syn --rule INPUT ${in_params} ${additional}
+    fi
   else
+    # Allow 不需要处理
     :
   fi
 
@@ -5369,9 +5374,9 @@ function handle_synflood_server()
   # iptables_wrapper ${option} 
   # iptables_wrapper ${option} --proto ALL ${rule_in_params} ${in_params} --state INVALID ${log_params} ${additional}
   # iptables_wrapper RETURN --proto ALL ${rule_in_params}
-  if [ -n "${rule}" ]; then
-    iptables_wrapper "${rule_in}" --proto tcp --syn --rule INPUT ${in_params} ${additional}
-  fi
+  # if [ -n "${rule}" ]; then
+  #   iptables_wrapper "${rule_in}" --proto tcp --syn --rule INPUT ${in_params} ${additional}
+  # fi
 
 
   return 0
