@@ -5169,10 +5169,15 @@ function handle_package_server()
   fi
 
 
-  iptables_wrapper ${option} --proto ALL ${rule_in_params} ${in_params} --state INVALID ${log_params} ${additional}
-  iptables_wrapper RETURN --proto ALL ${rule_in_params}
-  if [ -n "${rule}" ]; then
-    iptables_wrapper "${rule_in}" --rule INPUT ${in_port_params}
+  if strcontains "${option}" 'Drop Disable Block' --ignorecase; then
+    iptables_wrapper ${option} --proto ALL ${rule_in_params} ${in_params} --state INVALID ${log_params} ${additional}
+    iptables_wrapper RETURN --proto ALL ${rule_in_params} ${in_params}
+    if [ -n "${rule}" ]; then
+      iptables_wrapper "${rule_in}" --rule INPUT ${in_params}
+    fi
+  else
+    # Allow 不需要处理
+    :
   fi
 
 
