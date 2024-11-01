@@ -5975,6 +5975,7 @@ function handle_icmp_server_and_client()
   fi
 
 
+
   if [[ "${type}" == "server" ]]; then
     ##########################################
     # ICMP 包规则
@@ -5983,21 +5984,58 @@ function handle_icmp_server_and_client()
     # 1. ICMP 包必须封装在一个2层的帧中,因此它们不会有碎片, 带有碎片的 ICMP 包通常被标记为恶意攻击
     # 2. 10 次 ping 超过每秒 1 次后丢弃
 
-    # 丢弃 fragment
-    iptables_wrapper DROP --proto icmp --fragment ${rule_in_params} ${in_params} ${log_params} ${additional}
+    if strcontains "${option}" 'Allow Accept Enable' --ignorecase; then
+      # 丢弃 fragment
+      iptables_wrapper DROP --proto icmp --fragment ${rule_in_params} ${in_params} ${log_params} ${additional}
 
-    # limit 限制
-    iptables_wrapper "${option}" --proto icmp --proto-flag echo-request ${rule_in_params} --limit limit-upto:ping_attack:1/s:10:srcip:::300000 ${in_params} --state NEW,ESTABLISHED ${log_params} ${additional}
-    iptables_wrapper "${option}" --proto icmp --proto-flag echo-reply ${rule_out_params} --state ESTABLISHED
+
+      # ping limit 限制 incoming
+      iptables_wrapper ACCEPT --proto icmp --proto-flag echo-request ${rule_in_params} --limit limit-upto:ping_attack:1/s:10:srcip:::300000 ${in_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+      # 永久禁用icmp时间戳 incoming
+      iptables_wrapper DROP --proto icmp --proto-flag timestamp-request ${rule_in_params} ${in_params} ${additional}
+
+      # ping limit 限制 outgoing
+      iptables_wrapper ACCEPT --proto icmp --proto-flag echo-reply ${rule_out_params} ${out_params} --state ESTABLISHED
+      # 永久禁用icmp时间戳 outgoing
+      iptables_wrapper DROP --proto icmp --proto-flag timestamp-reply ${rule_out_params} ${out_params} ${additional}
+
+    elif strcontains "${option}" 'Block Drop Disable' --ignorecase; then
+
+      # 丢弃 fragment
+      iptables_wrapper DROP --proto icmp --fragment ${rule_in_params} ${in_params} ${log_params} ${additional}
+
+
+      # ping limit 限制 incoming
+      iptables_wrapper DROP --proto icmp --proto-flag echo-request ${rule_in_params} ${in_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+      # 永久禁用icmp时间戳 incoming
+      iptables_wrapper DROP --proto icmp --proto-flag timestamp-request ${rule_in_params} ${in_params} ${additional}
+
+      # ping limit 限制 outgoing
+      iptables_wrapper DROP --proto icmp --proto-flag echo-reply ${rule_out_params} ${out_params} --state ESTABLISHED
+      # 永久禁用icmp时间戳 outgoing
+      iptables_wrapper DROP --proto icmp --proto-flag timestamp-reply ${rule_out_params} ${out_params} ${additional}
+
+    else
+      return 1
+    fi
 
   elif [[ "${type}" == "client" ]]; then
-    iptables_wrapper ${option} --proto icmp --proto-flag echo-reply ${rule_in_params} ${in_params} --state ESTABLISHED ${log_params} ${additional}
-    iptables_wrapper ${option} --proto icmp --proto-flag echo-request ${rule_out_params} --state NEW,ESTABLISHED
+
+    # ping limit 限制 outgoing
+    iptables_wrapper ${option} --proto icmp --proto-flag echo-request ${rule_out_params} ${out_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+    # icmp 时间戳 限制 outgoing
+    iptables_wrapper ${option} --proto icmp --proto-flag timestamp-request ${rule_out_params} ${out_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+
+    # ping limit 限制 incoming
+    iptables_wrapper ${option} --proto icmp --proto-flag echo-reply ${rule_in_params} ${in_params} --state ESTABLISHED
+    # icmp 时间戳 限制 incoming
+    iptables_wrapper ${option} --proto icmp --proto-flag timestamp-reply ${rule_in_params} ${in_params} --state ESTABLISHED
+
   fi
 
   if [ -n "${rule}" ]; then
-    iptables_wrapper "${rule_in}" --proto icmp --rule INPUT ${in_port_params}
-    iptables_wrapper "${rule_out}" --proto icmp --rule OUTPUT ${out_port_params}
+    iptables_wrapper "${rule_in}" --proto icmp --rule INPUT ${in_params}
+    iptables_wrapper "${rule_out}" --proto icmp --rule OUTPUT ${out_params}
   fi
 
 
