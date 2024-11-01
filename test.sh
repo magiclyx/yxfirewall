@@ -103,17 +103,20 @@ sudo ./firewall Server ACCEPT  --rule "ICMP_SRV" --proto icmp
 # 攻击防护：SSH 暴力破解
 # 为使用密码认证的服务器准备密码暴力攻击。
 # 如果 SSH 服务器开启了密码认证，请取消注释掉以下内容。
-##################################################
+###########################################################
 sudo ./firewall Server ACCEPT --proto ssh --rule "SSH_SRV" --ip 10.12.13.2 --log ssh_brute_force:-
-
-
 
 ###########################################################
 # 攻击防护：HTTP/HTTPS 
-##################################################
+###########################################################
 sudo ./firewall Server ACCEPT --proto http --rule "HTTP_SRV" --log http_dos:-
 sudo ./firewall Server ACCEPT --proto https --rule "HTTPS_SRV" --log https_dos:-
 
+###########################################################
+# 攻击防护：FTP
+###########################################################
+# FTP, 一定要设置一个端口范围，否则会开放全部端口
+sudo ./firewall Server ACCEPT --proto ftp --port 3000:3100 --rule "FTP_SRV"
 
 sudo ./firewall filter --list
 
