@@ -2431,9 +2431,9 @@ function iptables_wrapper()
   if ! [[ "${option}" =~ ^-.*$ ]]; then
     shift
 
-    if [[ ${option} == 'enable' ]] || [[ ${option} == 'Enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+    if strcontains "${option}" 'Enable Accept Allow' --ignorecase; then
       option="ACCEPT"
-    elif [[ ${option} == 'disable' ]] || [[ ${option} == 'Disable' ]] || [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+    elif strcontains "${option}" 'Disable Drop Block' --ignorecase; then
       option="DROP"
     elif [[ ${option} == 'return' ]] || [[ ${option} == 'Return' ]] || [[ ${option} == 'RETURN' ]]; then
       option="RETURN"
@@ -2977,6 +2977,12 @@ function iptables_handle_protocol()
       ${handle_func} ${option} --type ${type} ${additional}
       return $?
     fi
+  fi
+
+  if [[ ${protocol_name} =~ ^wall-.*$ ]]; then
+    # If no handle registed on native(wall-*), ignore the following operation.
+    echo_fatal "Can not find a native-handle '${protocol_name}' on '${type}'"
+    return 0
   fi
 
 
@@ -5353,7 +5359,6 @@ function handle_synflood_server()
 
   if strcontains "${option}" 'DROP DISABLE DENY' --ignorecase; then
     iptables_wrapper RETURN --proto tcp --syn ${rule_in_params} --limit limit-upto:syn_flood:200/s:3:srcip:::300000
-    echo "${log_params}"
     iptables_wrapper LOG ${log_params} ${rule_in_params}
     iptables_wrapper DROP ${rule_in_params}
   else
@@ -5759,16 +5764,19 @@ function handle_broadcast_server()
     log_params="${log_params} --log ${logstr}"
   fi
 
-  ###########################################################
-  # 发往所有主机（广播地址、组播地址）的数据包
-  ###########################################################
-  iptables_wrapper ${option} --ip-to 192.168.1.255 ${rule_in_params} ${in_params} ${log_params} ${additional}
-  iptables_wrapper ${option} --ip-to 255.255.255.255 ${rule_in_params} ${in_params} ${log_params} ${additional}
-  iptables_wrapper ${option} --ip-to 224.0.0.1 ${rule_in_params} ${in_params} ${log_params} ${additional}
 
+  if strcontains "${option}" 'Block Drop Disable' --ignorecase; then
+    ###########################################################
+    # 发往所有主机（广播地址、组播地址）的数据包
+    ###########################################################
+    iptables_wrapper ${option} --ip-to 192.168.1.255 ${rule_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper ${option} --ip-to 255.255.255.255 ${rule_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper ${option} --ip-to 224.0.0.1 ${rule_in_params} ${in_params} ${log_params} ${additional}
 
-  if [ -n "${rule}" ]; then
-    iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_port_params}
+    if [ -n "${rule}" ]; then
+      iptables_wrapper RETURN ${rule_in_params} ${in_params}
+      iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_params}
+    fi
   fi
 
 
@@ -6610,11 +6618,9 @@ function handle_ftp_server_and_client()
   fi
 
 
-  echo ${type}
   if [[ ${type} == "server" ]]; then
       if strcontains "${option}" 'ACCEPT ENABLE' --ignorecase; then
 
-        echo "FTP handler"
         # Allow FTP connections on port 21 incoming
         iptables_wrapper ACCEPT --proto tcp --port-to 21 ${rule_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
         # Allow FTP port 20 for active connections incoming
@@ -6640,7 +6646,7 @@ function handle_ftp_server_and_client()
 
   elif [[ ${type} == "client" ]]; then
     if strcontains "${option}" 'ACCEPT ENABLE' --ignorecase; then
-      echo "FTP handler"
+
       # Allow FTP connections on port 21 incoming
       iptables_wrapper ACCEPT --proto tcp --port-to 21 ${rule_in_params} ${in_params} --state ESTABLISHED ${additional}
       # Allow FTP port 20 for active connections incoming
