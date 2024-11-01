@@ -6202,7 +6202,7 @@ function handle_icmp_server_and_client()
     iptables_wrapper DROP --proto icmp --fragment ${rule_in_params} ${in_params} ${log_params} ${additional}
 
     # limit 限制
-    iptables_wrapper "${option}" --proto icmp --proto-flag echo-request ${rule_in_params} --limit limit-upto:ping_attack:1/s:10:srcip:::3000 ${in_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+    iptables_wrapper "${option}" --proto icmp --proto-flag echo-request ${rule_in_params} --limit limit-upto:ping_attack:1/s:10:srcip:::300000 ${in_params} --state NEW,ESTABLISHED ${log_params} ${additional}
     iptables_wrapper "${option}" --proto icmp --proto-flag echo-reply ${rule_out_params} --state ESTABLISHED
 
   elif [[ "${type}" == "client" ]]; then
