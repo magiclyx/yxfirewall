@@ -78,6 +78,11 @@ sudo ./firewall default DROP --all  # 设置所有规则的默认行为是Drop
 sudo ./firewall Server DROP --rule "BROADCAST_SRV" --proto wall-broadcast --log firewall_broadcast:-
 
 ###########################################################
+# 攻击防护：syn flood
+###########################################################
+sudo ./firewall Server DROP  --rule "SYN_FLOOD" --proto wall-synflood --log firewall_synflood:-
+
+###########################################################
 # 攻击防护：bad package
 ###########################################################
 sudo ./firewall Server DROP --rule "PKG_SRV" --proto wall-pkg --log  firewall_invalid_package:-
