@@ -103,13 +103,16 @@ sudo ./firewall Server ACCEPT  --rule "ICMP_SRV" --proto icmp
 # 攻击防护：SSH 暴力破解
 # 为使用密码认证的服务器准备密码暴力攻击。
 # 如果 SSH 服务器开启了密码认证，请取消注释掉以下内容。
-#
-# TODO 添加禁止SSH-client 的命令。 这个不能用 firewall Client, 会冲突
-# TODO 测试 SSH WALL
-# TODO ICMP ping 的命令
 ##################################################
 sudo ./firewall Server ACCEPT --proto ssh --rule "SSH_SRV" --ip 10.12.13.2 --log ssh_brute_force:-
 
+
+
+###########################################################
+# 攻击防护：HTTP/HTTPS 
+##################################################
+sudo ./firewall Server ACCEPT --proto http --rule "HTTP_SRV" --log http_dos:-
+sudo ./firewall Server ACCEPT --proto https --rule "HTTPS_SRV" --log https_dos:-
 
 
 sudo ./firewall filter --list
