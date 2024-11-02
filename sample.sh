@@ -151,7 +151,7 @@ then
     do
       ip_params=''
       if [[ ${net} != '*' ]]; then
-        ip_params="--ip ${net}"
+        ip_params="--net ${net}"
       fi
         sudo ./firewall Server ACCEPT --proto icmp --rule "FW_ICMP" ${ip_params} --log firewall-icmp:-
     done
@@ -167,7 +167,7 @@ then
     do
       ip_params=''
       if [[ ${net} != '*' ]]; then
-        ip_params="--ip ${net}"
+        ip_params="--net ${net}"
       fi
         sudo ./firewall Server ACCEPT --proto ssh --rule "FW_SSH" ${ip_params} --log firewall-ssh:-
     done
@@ -181,7 +181,7 @@ then
     do
       ip_params=''
       if [[ ${net} != '*' ]]; then
-        ip_params="--ip ${net}"
+        ip_params="--net ${net}"
       fi
         sudo ./firewall Server ACCEPT --proto https --rule "FW_HTTPS" ${ip_params} --log firewall-https:-
         if ! ${HTTPS_ONLY}; then
@@ -199,7 +199,7 @@ then
     do
       ip_params=''
       if [[ ${net} != '*' ]]; then
-        ip_params="--ip ${net}"
+        ip_params="--net ${net}"
       fi
 
       port_params=''
