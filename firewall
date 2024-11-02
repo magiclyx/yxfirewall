@@ -3400,8 +3400,9 @@ function iptables_wall()
 
         #try get port number and low-level protocol name from registed hook handler
         if [ -z "${port}" ]; then
+          port=$(search_handler_info "${protocol}" port)
           if [ -n "${port}" ]; then
-            protocol=$(search_handler_info "${protocol}" protocol)
+            protocol=$(search_handler_info "${protocol}" protocol) # e.g. http->tcp
             if [ -z "${protocol}" ]; then
               protocol='tcp'
             fi
@@ -3421,7 +3422,7 @@ function iptables_wall()
 
         #try get port number from DEFAULT_PORT
         if [ -z "${port}" ]; then
-          port=${DEFAULT_PORT[${protocol^^}]}
+          port=${DEFAULT_PORT[${protocol^^}]} # Use protocol number to get port number
           if [ -n "${port}" ]; then
             protocol='tcp'
           fi
