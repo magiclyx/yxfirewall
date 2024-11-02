@@ -440,14 +440,14 @@ function ip_forward_v4()
 
   # 使用sed更改sysctl.conf中的ip_forward值
   #:echo_cmd
-  echo_noti 'Set ipv4.ip_forward = 1 ...'
-  echo_info "sed -i \"s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g\" \"${SYSCFG_PATH}\""
+  echo_info 'Set ipv4.ip_forward = 1 ...'
+  echo_debug "sed -i \"s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g\" \"${SYSCFG_PATH}\""
   sed -i "s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g" "${SYSCFG_PATH}"
  
   #如果需要，立即应用更改
   #:echo_cmd
-  echo_noti 'Make system configure enable...'
-  echo_info "${SYSCTL} -p > /dev/null"
+  echo_info 'Make system configure enable...'
+  echo_debug "${SYSCTL} -p > /dev/null"
   "${SYSCTL}" -p > /dev/null
 
   local result=0
@@ -808,7 +808,7 @@ function echo_fatal()
 # Use '#:echo_cmd' mark all not handle code place
 function echo_cmd()
 {
-  echo_info "$@"
+  echo_debug "$@"
   $@
 }
 
@@ -2016,7 +2016,7 @@ function iptables_start()
 
     local system=$(linux_type)
     if [[ ${system} == "centos" || ${system} == "debian" ]]; then
-      echo_noti 'Start iptables service...'
+      echo_info 'Start iptables service...'
       echo_cmd "start iptables.service"
       echo_cmd "enable iptables.service"
     elif [[ ${system} == "ubuntu" ]]; then
@@ -2103,7 +2103,7 @@ function iptables_save()
       # iptables -A LAST_LOGGING -j LOG --log-prefix "${log_input_prefix}" --log-level 7
       # iptables -A LAST_LOGGING -j DROP
 
-      echo_noti 'Add INPUT DROP Log ...'
+      echo_info 'Add INPUT DROP Log ...'
       echo_cmd "${IPTABLES} -A INPUT -j LOG --log-prefix ${log_input_prefix} --log-level 7"
     fi
 
@@ -2113,7 +2113,7 @@ function iptables_save()
         log_output_prefix="${CMD}-Drop-Output:"
       fi
 
-      echo_noti 'Add OUTPUT DROP Log ...'
+      echo_info 'Add OUTPUT DROP Log ...'
       echo_cmd "${IPTABLES} -A OUTPUT -j LOG --log-prefix ${log_output_prefix} --log-level 7"
     fi
 
@@ -2124,17 +2124,17 @@ function iptables_save()
         log_forward_prefix="${CMD}-Drop-Forward:"
       fi
 
-      echo_noti 'Add FORWARD DROP Log ...'
+      echo_info 'Add FORWARD DROP Log ...'
       echo_cmd "${IPTABLES} -A FORWARD -j LOG --log-prefix ${log_forward_prefix} --log-level 7"
     fi
 
 
     local system=$(linux_type)
     if [[ ${system} == "centos" || ${system} == "debian" ]]; then
-      echo_noti 'Save changes...'
+      echo_info 'Save changes...'
       echo_cmd "service iptables save"
 
-      echo_noti 'Restart iptables services...'
+      echo_info 'Restart iptables services...'
       echo_cmd "service iptables stop"
       echo_cmd "service iptables start"
     elif [[ ${system} == "ubuntu" ]]; then
@@ -2155,14 +2155,14 @@ function iptables_save()
       local script_file_v6="/etc/network/if-pre-up.d/${FILENAME_NAT6}"
 
       # Create iptables rule file ...
-      echo_noti "Create iptables rule file ..."
+      echo_info "Create iptables rule file ..."
       echo_cmd "${IPTABLES_SAVE} --file ${RULE_FILE}"
       echo_cmd "${IP6TABLES_SAVE} --file ${RULE6_FILE}"
       
       # Create launch script ...
-      echo_noti "Create launch script ..."
-      echo -e "#!/bin/bash\n${IPTABLES_RESTORE} < ${RULE_FILE}" | tee ${script_file_v4} | echo_info
-      echo -e "#!/bin/bash\n${IP6TABLES_RESTORE} < ${RULE6_FILE}" | tee ${script_file_v6} | echo_info
+      echo_info "Create launch script ..."
+      echo -e "#!/bin/bash\n${IPTABLES_RESTORE} < ${RULE_FILE}" | tee ${script_file_v4} | echo_debug
+      echo -e "#!/bin/bash\n${IP6TABLES_RESTORE} < ${RULE6_FILE}" | tee ${script_file_v6} | echo_debug
       
     else
       :
@@ -2223,7 +2223,7 @@ function iptables_clear()
       set_info_level "${info_level}"
     fi
 
-    echo_noti 'Clear all rules...'
+    echo_info 'Clear all rules...'
 
     echo_cmd "${IPTABLES} -F"
     echo_cmd "${IPTABLES} -X"
@@ -2341,7 +2341,7 @@ function iptables_default()
         echo_fatal 'iptables default need at least one params [DROP , ACCEPT]'
       fi
 
-      echo_noti 'Set default policy...'
+      echo_info 'Set default policy...'
 
       if ${opt_input}; then
         echo_cmd "${IPTABLES} -P INPUT ${option}"
@@ -2924,7 +2924,7 @@ function iptables_filter2()
         echo_fatal 'iptables filter need at least one params [DROP , ACCEPT]'
       fi
 
-      echo_noti 'Add filter rule...'
+      echo_info 'Add filter rule...'
       iptables_wrapper "${option}" ${additional}
     fi
   fi
@@ -3519,7 +3519,7 @@ function iptables_wall()
                 out_params="${out_params} --port-from ${port}"
               fi
 
-              echo_noti 'Add server rule...'
+              echo_info 'Add server rule...'
               iptables_wrapper ${option} --rule ${rule_in} ${in_params} ${protocol_params} ${limit_params} --state NEW,ESTABLISHED ${log_params} ${additional}
               iptables_wrapper ${option} --rule ${rule_out} ${out_params} ${protocol_params} ${limit_params} --state ESTABLISHED ${log_params} ${additional}
 
@@ -3535,7 +3535,7 @@ function iptables_wall()
                 out_params="${out_params} --port-to ${port}"
               fi
 
-              echo_noti 'Add client rule...'
+              echo_info 'Add client rule...'
               iptables_wrapper ${option} --rule ${rule_out} ${out_params} ${protocol_params} ${limit_params} --state NEW,ESTABLISHED ${log_params} ${additional}
               iptables_wrapper ${option} --rule ${rule_in} ${in_params} ${protocol_params} ${limit_params} --state ESTABLISHED ${log_params} ${additional}
 
@@ -3551,14 +3551,14 @@ function iptables_wall()
                 in_params="${in_params} --port-to ${port}"
               fi
 
-              echo_noti 'Add incoming rule...'
+              echo_info 'Add incoming rule...'
               iptables_wrapper "${option}" --rule ${rule_in} ${in_params} ${protocol_params} ${limit_params} ${log_params} ${additional}
             elif [[ ${type} == 'outgoing' ]]; then
               if [ -n "${port}" ]; then
                 out_params="${out_params} --port-from ${port} --port-to ${port}"
               fi
 
-              echo_noti 'Add outgoing rule...'
+              echo_info 'Add outgoing rule...'
               iptables_wrapper "${option}" --rule ${rule_out} ${out_params} ${protocol_params} ${limit_params} ${log_params} ${additional}
 
             fi # end of 'if [[ "${type}" =='
@@ -4023,7 +4023,7 @@ function iptables_filter()
                   log_prefix="${CMD}-Incomming:"
                 fi
 
-                echo_noti 'Add filter incoming log...'
+                echo_info 'Add filter incoming log...'
                 echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -m state --state NEW,ESTABLISHED  -j LOG --log-prefix ${log_prefix} --log-level 4"
               fi
 
@@ -4036,7 +4036,7 @@ function iptables_filter()
                   log_prefix="${CMD}-Outgoing:"
                 fi
                 # Add filter outgoing log...
-                echo_noti 'Add filter outgoing log...'
+                echo_info 'Add filter outgoing log...'
                 echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
               fi
 
@@ -4049,7 +4049,7 @@ function iptables_filter()
                   log_prefix="${CMD}-Filter:"
                 fi
                 # Add filter outgoing log...
-                echo_noti 'Add filter log...'
+                echo_info 'Add filter log...'
                 echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j LOG --log-prefix ${log_prefix} --log-level 4"
                 echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params}${ip_from_params}${ip_to_params}${limit_params} -j LOG --log-prefix ${log_prefix} --log-level 4"
               fi
@@ -4069,12 +4069,12 @@ function iptables_filter()
               log_prefix="${CMD}-Incomming:"
             fi
             # Add filter incoming log...
-            echo_noti 'Add filter incoming log...'
+            echo_info 'Add filter incoming log...'
             echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport --dports ${inports}${limit_params}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
           fi
 
           # Add filter incoming rule...
-          echo_noti 'Add filter incoming rule...'
+          echo_info 'Add filter incoming rule...'
           echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport --dports ${inports}${limit_params}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
           echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport --sports ${inports}${limit_params}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
         elif [[ -n ${outports} ]]  &&  [[ -z ${inports} ]]; then
@@ -4083,12 +4083,12 @@ function iptables_filter()
               log_prefix="${CMD}-Outgoing:"
             fi
             # Add filter outgoing log...
-            echo_noti 'Add filter outgoing log...'
+            echo_info 'Add filter outgoing log...'
             echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport --dports ${outports}${limit_params}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j LOG --log-prefix ${log_prefix} --log-level 4"
           fi
 
           # Add filter outgoing rule...
-          echo_noti 'Add filter outgoing rule...'
+          echo_info 'Add filter outgoing rule...'
           echo_cmd "${IPTABLES} -A OUTPUT${output_interface_param}${protocol_params}${inflag_params}${mac_params} -m multiport --dports ${outports}${limit_params}${ip_from_params}${ip_to_params} -m state --state NEW,ESTABLISHED -j ${option}"
           echo_cmd "${IPTABLES} -A INPUT${input_interface_param}${protocol_params}${outflag_params}${mac_params} -m multiport --sports ${outports}${limit_params}${ip_from_params}${ip_to_params} -m state --state ESTABLISHED -j ${option}"
         fi
@@ -4200,12 +4200,12 @@ function iptables_nat()
       fi
       
       # Add forwarding log
-      echo_noti 'Add forwarding log...'
+      echo_info 'Add forwarding log...'
       echo_cmd "${IPTABLES} -A FORWARD -o ${to_inter} -i ${from_inter} -m conntrack --ctstate NEW -j LOG --log-prefix ${log_prefix} --log-level 4"
     fi
 
     # Add forwarding rule
-    echo_noti 'Add forwarding rule...'
+    echo_info 'Add forwarding rule...'
     echo_cmd "${IPTABLES} -A FORWARD -o ${to_inter} -i ${from_inter} -m conntrack --ctstate NEW -j ACCEPT"
     # 允许已经建立链接的网络包转发
     #sudo iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
@@ -4214,7 +4214,7 @@ function iptables_nat()
 
     # 设置SNAT
     # add SNAT rule
-    echo_noti 'add SNAT rule...'
+    echo_info 'add SNAT rule...'
     #iptables -t nat -A POSTROUTING -s 192.168.56.0/24 -j SNAT --to-source 10.0.2.15
     echo_cmd "${IPTABLES} -t nat -A POSTROUTING -o ${to_inter} -j MASQUERADE" # 这个记得之前应该好使啊????!!!!
 
@@ -4298,7 +4298,7 @@ function iptables_rule()
         echo_fatal "Must indicate rule name with --rule <name>"
       fi
 
-      echo_noti "Create new rule :'${rule}'..."
+      echo_info "Create new rule :'${rule}'..."
       echo_cmd "${IPTABLES} -N ${rule}"
     fi
   fi
@@ -5794,7 +5794,7 @@ function handle_ssh_server()
 
   if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
 
-    echo_noti "Add filter to ACCEPT package on SSH server with rule:${rule}..."
+    echo_info "Add filter to ACCEPT package on SSH server with rule:${rule}..."
     #iptables_wrapper --proto tcp --syn ${rule_params} ${in_params} --limit recent-set:ssh_attack --state NEW,ESTABLISHED 
     #iptables_wrapper REJECT-WITH tcp-reset --proto tcp --syn ${rule_params} ${in_params} --limit recent-check:ssh_attack:60:5 --state NEW,ESTABLISHED ${additional}
 
@@ -5817,7 +5817,7 @@ function handle_ssh_server()
     ###########################################################
     # Same as ${CMD} service DROP --proto tcp --port 22
     ###########################################################
-    echo_noti "Add filter to DROP package on SSH server with rule:${rule}..."
+    echo_info "Add filter to DROP package on SSH server with rule:${rule}..."
     iptables_wrapper "${option}" --proto tcp ${rule_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
     iptables_wrapper "${option}" --proto tcp ${rule_out_params} ${out_params} --state ESTABLISHED ${additional}
 
