@@ -3398,22 +3398,22 @@ function iptables_wall()
       ####################
       if [ -z "${port}" ] && [ -n "${protocol}" ]; then
 
-        #try get port number and low-level protocol name from registed hook handler
+        #try get port number and low-level protocol name from rule config
         if [ -z "${port}" ]; then
-          port=$(search_handler_info "${protocol}" port)
+          port=$(iptables_config "rule.${protocol}" --read --key port)
           if [ -n "${port}" ]; then
-            protocol=$(search_handler_info "${protocol}" protocol) # e.g. http->tcp
+            protocol=$(iptables_config "rule.${protocol}" --read --key protocol)
             if [ -z "${protocol}" ]; then
               protocol='tcp'
             fi
           fi
         fi
 
-        #try get port number and low-level protocol name from rule config
+        #try get port number and low-level protocol name from registed hook handler
         if [ -z "${port}" ]; then
-          port=$(iptables_config "rule.${protocol}" --read --key port)
+          port=$(search_handler_info "${protocol}" port)
           if [ -n "${port}" ]; then
-            protocol=$(iptables_config "rule.${protocol}" --read --key protocol)
+            protocol=$(search_handler_info "${protocol}" protocol) # e.g. http->tcp
             if [ -z "${protocol}" ]; then
               protocol='tcp'
             fi

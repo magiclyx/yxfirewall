@@ -53,6 +53,9 @@ FTP_HOSTS=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+) or \*
     10.12.13.2
 )
 
+# 可通过配置文件，修改port号。 
+# 也可在命令中直接指定 --port 参数
+# sudo ./firewall config rule.ssh --remove --key port
 
 ###########################################################
 # SNAT 定义
