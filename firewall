@@ -6271,8 +6271,8 @@ function handle_ssh_server()
   fi
 
   if [ -n "${rule}" ]; then
-    iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_port_params}
-    iptables_wrapper "${rule_out}" --proto tcp --rule OUTPUT ${out_port_params}
+    iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_params}
+    iptables_wrapper "${rule_out}" --proto tcp --rule OUTPUT ${out_params}
   fi
 
   return 0
