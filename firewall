@@ -4310,10 +4310,10 @@ function iptables_loopback()
 {
 
   local option=$1
-  if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+  if strcontains "${option}" 'Accept Enable Allow' --ignorecase; then
     option="ACCEPT"
     shift
-  elif [[ ${option} == 'disable' ]] || [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+  elif strcontains "${option}" 'Drop Disable Block' --ignorecase; then
     option="DROP"
     shift
   else
