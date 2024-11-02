@@ -85,10 +85,28 @@ NET_BIOS=135,137,138,139,445
 DHCP=67,68
 
 
+function echo_noti()
+{
+  local str=
+	if (( $# == 0 )) ; then
+		read -r -t 5 -d $'\0' str
+#		num=`cat < /dev/stdin`
+	else
+		str="$*"
+	fi
+
+  local blue=$(tput setaf 4);
+  local reset=$(tput sgr0);
+  
+  (>&1 echo "${blue}${str}${reset}")
+}
+
 ###########################################################
 # 设置调试日志级别为 Debug, 并保存之前的配置
 ###########################################################
 if ${DEBUG}; then
+    echo_noti "Change output level to 'DEBUG'..."
+
     info_level_buckup=$(sudo ./firewall config --read --key info.level)
     sudo ./firewall config --write --key info.level --val debug
 fi
@@ -97,6 +115,8 @@ fi
 ###########################################################
 # 初始化 Iptables
 ###########################################################
+echo_noti "Initialize..."
+
 sudo ./firewall start  # 启动服务
 sudo ./firewall clear  # 清空所有规则
 sudo ./firewall default DROP --all  # 设置所有规则的默认行为是Drop
@@ -105,6 +125,8 @@ sudo ./firewall default DROP --all  # 设置所有规则的默认行为是Drop
 ###########################################################
 # 放弃来自 $DENY_HOSTS 的访问
 ###########################################################
+echo_noti "Set deny hosts..."
+
 if [ "${DENY_HOSTS}" ]
 then
 	for host in "${DENY_HOSTS[@]}";
@@ -117,6 +139,7 @@ fi
 ###########################################################
 # 通用防护
 ###########################################################
+echo_noti "Set Common guard rule..."
 
 # 攻击防护：broadcast
 sudo ./firewall Server Block --proto wall-broadcast --rule "FW_BROADCAST" --log firewall-broadcast:-
@@ -131,6 +154,7 @@ sudo ./firewall Server Block --proto wall-scan --rule "FW_STEALTHSCAN" --log fir
 ###########################################################
 # loopback
 ###########################################################
+echo_noti "Set Loopback"
 
 if ${LOOP_BACK}; then
  sudo ./firewall loopback Enable
@@ -147,14 +171,15 @@ fi
 # 这里了还是记了日志，因为只对特定ip开放
 if [ "${ICMP_HOSTS}" ];
 then
-    for net in "${ICMP_HOSTS[@]}";
-    do
-      ip_params=''
-      if [[ ${net} != '*' ]]; then
-        ip_params="--net ${net}"
-      fi
-        sudo ./firewall Server ACCEPT --proto icmp --rule "FW_ICMP" ${ip_params} --log firewall-icmp:-
-    done
+  echo_noti "Set ICMP host rule..."
+  for net in "${ICMP_HOSTS[@]}";
+  do
+    ip_params=''
+    if [[ ${net} != '*' ]]; then
+      ip_params="--net ${net}"
+    fi
+      sudo ./firewall Server ACCEPT --proto icmp --rule "FW_ICMP" ${ip_params} --log firewall-icmp:-
+  done
 fi
 
 
@@ -163,31 +188,33 @@ fi
 # 如果 SSH 服务器开启了密码认证，请取消注释掉以下内容。
 if [ "${SSH_HOSTS}" ];
 then
-    for net in "${SSH_HOSTS[@]}";
-    do
-      ip_params=''
-      if [[ ${net} != '*' ]]; then
-        ip_params="--net ${net}"
-      fi
-        sudo ./firewall Server ACCEPT --proto ssh --rule "FW_SSH" ${ip_params} --log firewall-ssh:-
-    done
+  echo_noti "Set SSH host rule..."
+  for net in "${SSH_HOSTS[@]}";
+  do
+    ip_params=''
+    if [[ ${net} != '*' ]]; then
+      ip_params="--net ${net}"
+    fi
+      sudo ./firewall Server ACCEPT --proto ssh --rule "FW_SSH" ${ip_params} --log firewall-ssh:-
+  done
 fi
 
 
 # 攻击防护：HTTP/HTTPS 
 if [ "${WEB_HOSTS}" ];
 then
-    for net in "${WEB_HOSTS[@]}";
-    do
-      ip_params=''
-      if [[ ${net} != '*' ]]; then
-        ip_params="--net ${net}"
+  echo_noti "Set Web host rule..."
+  for net in "${WEB_HOSTS[@]}";
+  do
+    ip_params=''
+    if [[ ${net} != '*' ]]; then
+      ip_params="--net ${net}"
+    fi
+      sudo ./firewall Server ACCEPT --proto https --rule "FW_HTTPS" ${ip_params} --log firewall-https:-
+      if ! ${HTTPS_ONLY}; then
+          sudo ./firewall Server ACCEPT --proto http --rule "FW_HTTP" ${ip_params} --log firewall-http:-
       fi
-        sudo ./firewall Server ACCEPT --proto https --rule "FW_HTTPS" ${ip_params} --log firewall-https:-
-        if ! ${HTTPS_ONLY}; then
-            sudo ./firewall Server ACCEPT --proto http --rule "FW_HTTP" ${ip_params} --log firewall-http:-
-        fi
-    done
+  done
 fi
 
 
@@ -195,19 +222,20 @@ fi
 # FTP, 一定要设置一个端口范围，否则会开放全部端口
 if [ "${FTP_HOSTS}" ];
 then
-    for net in "${FTP_HOSTS[@]}";
-    do
-      ip_params=''
-      if [[ ${net} != '*' ]]; then
-        ip_params="--net ${net}"
-      fi
+  echo_noti "Set FTP host rule..."
+  for net in "${FTP_HOSTS[@]}";
+  do
+    ip_params=''
+    if [[ ${net} != '*' ]]; then
+      ip_params="--net ${net}"
+    fi
 
-      port_params=''
-      if [ -n ${FTP_PORTS_RANGE} ]; then
-        port_params="--port ${FTP_PORTS_RANGE}"
-      fi
-        sudo ./firewall Server ACCEPT --proto ftp ${port_params} --rule "FTP_SRV" ${ip_params}
-    done
+    port_params=''
+    if [ -n ${FTP_PORTS_RANGE} ]; then
+      port_params="--port ${FTP_PORTS_RANGE}"
+    fi
+      sudo ./firewall Server ACCEPT --proto ftp ${port_params} --rule "FTP_SRV" ${ip_params}
+  done
 fi
 
 
@@ -217,6 +245,7 @@ fi
 
 if [ -n "${SNAT_WAN}" ]  && [ "${SNAT_LAN_LIST}" ]
 then
+  echo_noti "set SNAT..."
   for lan in "${SNAT_LAN_LIST[@]}"
   do
     sudo ./firewall nat --snat --from-inter "${lan}" --to-inter "${SNAT_WAN}" --log firewall-forward:
@@ -230,27 +259,30 @@ fi
 
 if [ "${INCOMING_HOST}" ]
 then
-    for host in "${INCOMING_HOST[@]}";
-    do
-      sudo ./firewall Server ACCEPT --net "${host}"
-    done
+  echo_noti "Set incoming host..."
+  for host in "${INCOMING_HOST[@]}";
+  do
+    sudo ./firewall Server ACCEPT --net "${host}"
+  done
 fi
 
 if [ "${OUTGOING_HOST}" ]
 then
-    for host in "${OUTGOING_HOST[@]}";
-    do
-      sudo ./firewall Client ACCEPT --net "${host}"
-    done
+  echo_noti "Set outgoing host..."
+  for host in "${OUTGOING_HOST[@]}";
+  do
+    sudo ./firewall Client ACCEPT --net "${host}"
+  done
 fi
 
 if [ "${FULL_TRUST_HOSTS}" ]
 then
-    for host in "${FULL_TRUST_HOSTS[@]}";
-    do
-      sudo ./firewall incoming ACCEPT --net "${host}"
-      sudo ./firewall outgoing ACCEPT --net "${host}"
-    done
+  echo_noti "Set full-trust host..."
+  for host in "${FULL_TRUST_HOSTS[@]}";
+  do
+    sudo ./firewall incoming ACCEPT --net "${host}"
+    sudo ./firewall outgoing ACCEPT --net "${host}"
+  done
 fi
 
 ###########################################################
@@ -272,12 +304,14 @@ fi
 # 其他
 # 如果上述规则不适用，则记录并丢弃
 ###########################################################
+echo_noti "Drop any other connect..."
 sudo ./firewall incoming DROP --log firewall-drop
 
 
 ###########################################################
 # 恢复之前的配置
 ###########################################################
+echo_noti "Reset Info.level..."
 if [ -n "${info_level_buckup}" ]; then
     sudo ./firewall config --write --key info.level --val "${info_level_buckup}"
 else
@@ -288,6 +322,7 @@ fi
 # 保存 Iptables
 ###########################################################
 #:~TODO 去除 save 命令 三个log相关参数
+echo_noti "Save changes..."
 sudo ./firewall save --log-input firewall-input-drop:
 
 
