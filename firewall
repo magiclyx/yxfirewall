@@ -6473,12 +6473,16 @@ function handle_web_server()
 
     iptables_wrapper ACCEPT --proto tcp ${rule_out_params} ${in_params} --state ESTABLISHED ${additional}
 
-    if [ -n "${rule}" ]; then
-      iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_port_params}
-      iptables_wrapper "${rule_out}" --proto tcp --rule OUTPUT ${out_port_params}
-    fi
   else
-      iptables_wrapper DROP --proto tcp --rule INPUT ${in_params} --state NEW ${additional}
+     iptables_wrapper DROP --proto tcp ${rule_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
+     iptables_wrapper DROP --proto tcp ${rule_out_params} ${out_params} --state ESTABLISHED ${additional}
+      
+      # iptables_wrapper DROP --proto tcp --rule INPUT ${in_params} --state NEW ${additional}
+  fi
+
+  if [ -n "${rule}" ]; then
+    iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_params}
+    iptables_wrapper "${rule_out}" --proto tcp --rule OUTPUT ${out_params}
   fi
 
 
@@ -6722,10 +6726,10 @@ function handle_ftp_server_and_client()
   fi
 
   if [ -n "${rule}" ]; then
-    iptables_wrapper "${rule_in}" --proto tcp --rule INPUT --port-to 20,21
-    iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_port_params}
-    iptables_wrapper "${rule_out}" --proto tcp --rule OUTPUT --port-from 20,21
-    iptables_wrapper "${rule_out}" --proto tcp --rule OUTPUT ${out_port_params}
+    iptables_wrapper "${rule_in}" --proto tcp --rule INPUT --port-to 20,21 ${in_params}
+    iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_port_params} ${in_params}
+    iptables_wrapper "${rule_out}" --proto tcp --rule OUTPUT --port-from 20,21 ${out_params}
+    iptables_wrapper "${rule_out}" --proto tcp --rule OUTPUT ${out_port_params} ${out_params}
   fi
 
 
