@@ -6239,7 +6239,7 @@ function handle_ssh_server()
 
 
 
-  if strcontains "${option}" 'ACCEPT ENABLE' --ignorecase; then
+  if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
 
     echo_noti "Add filter to ACCEPT package on SSH server with rule:${rule}..."
     #iptables_wrapper --proto tcp --syn ${rule_params} ${in_params} --limit recent-set:ssh_attack --state NEW,ESTABLISHED 
@@ -6259,7 +6259,7 @@ function handle_ssh_server()
     iptables_wrapper ACCEPT --proto tcp ${rule_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
     iptables_wrapper ACCEPT ${rule_out_params} --proto tcp ${out_params} --state ESTABLISHED ${additional}
 
-  else
+  elif strcontains "${option}" 'DROP DISABLE BLOCK' --ignorecase; then
 
     ###########################################################
     # Same as ${CMD} service DROP --proto tcp --port 22
@@ -6459,7 +6459,7 @@ function handle_web_server()
   fi
 
 
-  if strcontains "${option}" 'ACCEPT ENABLE' --ignorecase; then
+  if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
 
     ###########################################################
     # 攻击防护：HTTP/HTTPS 
@@ -6473,7 +6473,7 @@ function handle_web_server()
 
     iptables_wrapper ACCEPT --proto tcp ${rule_out_params} ${in_params} --state ESTABLISHED ${additional}
 
-  else
+  elif strcontains "${option}" 'DROP DISABLE BLOCK' --ignorecase; then
      iptables_wrapper DROP --proto tcp ${rule_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
      iptables_wrapper DROP --proto tcp ${rule_out_params} ${out_params} --state ESTABLISHED ${additional}
       
@@ -6674,7 +6674,7 @@ function handle_ftp_server_and_client()
 
 
   if [[ ${type} == "server" ]]; then
-      if strcontains "${option}" 'ACCEPT ENABLE' --ignorecase; then
+      if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
 
         # Allow FTP connections on port 21 incoming
         iptables_wrapper ACCEPT --proto tcp --port-to 21 ${rule_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
@@ -6690,17 +6690,19 @@ function handle_ftp_server_and_client()
         # Finally allow FTP passive inbound traffic outgoing
         iptables_wrapper ACCEPT --proto tcp ${out_port_params} ${rule_out_params} ${out_params} --state ESTABLISHED ${additional}
 
-      else
+      elif strcontains "${option}" 'DROP DISABLE BLOCK' --ignorecase; then
+
         # DROP FTP connections on port 21 incoming
         iptables_wrapper DROP --proto tcp --port-to 21 ${rule_in_params} ${in_params} --state NEW ${additional}
         # Allow FTP port 20 for active connections outgoing
         iptables_wrapper DROP --proto tcp --port-from 20 ${rule_out_params} ${out_params} --state RELATED ${additional}
         # Finally allow FTP passive inbound traffic incoming
         iptables_wrapper DROP --proto tcp ${in_port_params} ${rule_in_params} ${in_params} --state RELATED ${additional}
+
       fi
 
   elif [[ ${type} == "client" ]]; then
-    if strcontains "${option}" 'ACCEPT ENABLE' --ignorecase; then
+    if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
 
       # Allow FTP connections on port 21 incoming
       iptables_wrapper ACCEPT --proto tcp --port-to 21 ${rule_in_params} ${in_params} --state ESTABLISHED ${additional}
@@ -6715,13 +6717,16 @@ function handle_ftp_server_and_client()
       iptables_wrapper ACCEPT --proto tcp --port-from 20 ${rule_out_params} ${out_params} --state ESTABLISHED ${additional}
       # Finally allow FTP passive inbound traffic outgoing
       iptables_wrapper ACCEPT --proto tcp ${out_port_params} ${rule_out_params} ${out_params} --state ESTABLISHED,RELATED ${additional}
-    else
+
+    elif strcontains "${option}" 'DROP DISABLE BLOCK' --ignorecase; then
+
       # Allow FTP connections on port 21 outgoing
       iptables_wrapper DROP --proto tcp --port-from 21 ${rule_out_params} ${out_params} --state NEW ${additional}
       # Allow FTP port 20 for active connections incoming
       iptables_wrapper DROP --proto tcp --port-to 20 ${rule_in_params} ${in_params} --state RELATED ${additional}
       # Finally allow FTP passive inbound traffic outgoing
       iptables_wrapper DROP --proto tcp ${out_port_params} ${rule_out_params} ${out_params} --state RELATED ${additional}
+
     fi
   fi
 
