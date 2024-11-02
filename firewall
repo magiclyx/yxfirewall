@@ -3468,7 +3468,7 @@ function iptables_wall()
           
           # hook ip
           if [ -n "${ip_in_list}" ] && [ "${ip_in_list}" != '*' ]; then
-            hook_params="${hook_params} --ip ${ip}"
+            hook_params="${hook_params} --ip ${ip_in_list}"
           fi
           if [ -n "${not_ip}" ]; then
             hook_params="${hook_params} --not-ip ${not_ip}"
