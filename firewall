@@ -4381,9 +4381,8 @@ function iptables_loopback()
       echo_fatal "${CMD} loopback can not support --not-interface params"
     fi
 
-    # iptables -A INPUT -i lo -j ACCEPT
-    # iptables -A OUTPUT -o lo -j ACCEPT
-    iptables_wall ${option} --incoming --outgoing --interface lo
+    iptables_wall incoming ${option} --interface lo+
+    iptables_wall outgoing ${option} --interface lo+
   fi
 
 }
