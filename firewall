@@ -4193,8 +4193,17 @@ function iptables_nat()
 function iptables_rule()
 {
   local rule=
+  local table=
   local show_help=false
   local info_level=
+
+  local -A common_tables
+  common_tables=(
+    [filter]='INPUT FORWARD OUTPUT'
+    [nat]='PREROUTING POSTROUTING OUTPUT'
+    [mangle]='PREROUTING POSTROUTING INPUT OUTPUT FORWARD'
+    [raw]='PREROUTING OUTPUT'
+  )
 
 
   local option=$1
@@ -4203,6 +4212,9 @@ function iptables_rule()
     shift
   elif [[ ${option} == 'exist' ]] || [[ ${option} == 'Exist' ]] || [[ ${option} == 'EXIST' ]] ; then
     option="EXIST"
+    shift
+  elif [[ ${option} == 'remove' ]] || [[ ${option} == 'Remove' ]] || [[ ${option} == 'REMOVE' ]] ; then
+    option="REMOVE"
     shift
   elif [[ ${option} == 'list' ]] || [[ ${option} == 'List' ]] || [[ ${option} == 'LIST' ]] ; then
     option="LIST"
@@ -4214,6 +4226,12 @@ function iptables_rule()
 
   while [ $# -gt 0 ]; do
 		case $1 in
+
+			--table )
+        shift
+				table=$1
+			;;
+
 			--rule )
         shift
 				rule=$1
@@ -4241,6 +4259,10 @@ function iptables_rule()
     exit 0
   else
 
+    if [ -z "${table}" ]; then
+      table="filter"
+    fi
+
     if [ -n "${info_level}" ]; then
       set_info_level "${info_level}"
     fi
@@ -4257,7 +4279,7 @@ function iptables_rule()
       echo_info "Create new rule :'${rule}'..."
       echo_cmd "${IPTABLES} -N ${rule}"
 
-      return 0
+      return $?
     elif [[ "${option}" == 'LIST' ]]; then
       for rule in $(${IPTABLES} -S | grep "\-N "); do
         if ! [[ ${rule} =~ ^\-N.*$ ]]; then
@@ -4265,8 +4287,54 @@ function iptables_rule()
         fi
       done
       return 0
+    elif [[ "${option}" == 'REMOVE' ]]; then
+
+      if [ -z "${rule}" ]; then
+        echo_fatal "Rule name must not be empty, use --rule to indicate a rule name. try '-h' or '--help' to show more information "
+      fi
+
+      local -a chain_list
+      # add all common chain to chain_list
+      local common_chain_list_str=${common_tables["${table}"]}
+      for common_chain in $(echo ${common_chain_list_str}); do
+        chain_list=(${chain_list[*]} ${common_chain});
+      done
+      # add all custom chain on chan_list
+      for custom_chain in $(iptables_rule list --rule ${rule}); do
+        chain_list=(${chain_list[*]} ${custom_chain});
+      done
+
+      # walk through the chain list
+      for chain in ${chain_list[*]}; do
+        
+        # ignore the delete chain
+        if [[ "${chain}" == ${rule} ]]; then
+          continue
+        fi
+
+        # remove all reference of the chain from other tables.
+        while true; do
+          local line_num=$(${IPTABLES} -L ${chain} --line-numbers | grep -m 1 "${rule}" | awk '{print $1}' | grep -o "[^ ]\+\( \+[^ ]\+\)*");
+          if [ -z "${line_num}" ]; then
+            break
+          fi
+          echo_cmd "${IPTABLES} -t ${table} -D ${chain} ${line_num}"
+        done
+
+      done
+
+      # clear all contains of the chain
+      echo_cmd "${IPTABLES} -t ${table} --flush ${rule}"
+      # delete the chain
+      echo_cmd "${IPTABLES} -t ${table} --delete-chain ${rule}"
+
+      return $?
     elif [[ "${option}" == 'EXIST' ]]; then
-      echo "Rule exist? ${rule}"
+
+      if [ -z "${rule}" ]; then
+        echo_fatal "Rule name must not be empty, use --rule to indicate a rule name. try '-h' or '--help' to show more information "
+      fi
+
       if strcontains "${rule}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING' --ignorecase; then
         return 0
       elif ${IPTABLES} -S | grep -q "\-N ${rule}"; then
