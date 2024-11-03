@@ -2093,45 +2093,8 @@ function iptables_save()
       set_info_level "${info_level}"
     fi
 
-    input_optional=$(iptables_default --list --input)
 
-    if ${log_input}; then
-
-      if [ -z "${log_input_prefix}" ]; then
-        log_input_prefix="${CMD}-Drop-Input:"
-      fi
-
-      # iptables -N LAST_LOGGING
-      # iptables -A INPUT -j LAST_LOGGING
-      #iptables -A LAST_LOGGING -m limit --limit 2/min -j LOG --log-prefix "${log_input_prefix}" --log-level 7
-      # iptables -A LAST_LOGGING -j LOG --log-prefix "${log_input_prefix}" --log-level 7
-      # iptables -A LAST_LOGGING -j DROP
-
-      echo_info 'Add INPUT DROP Log ...'
-      echo_cmd "${IPTABLES} -A INPUT -j LOG --log-prefix ${log_input_prefix} --log-level 7"
-    fi
-
-    if ${log_output}; then
-
-      if [ -z "${log_output_prefix}" ]; then
-        log_output_prefix="${CMD}-Drop-Output:"
-      fi
-
-      echo_info 'Add OUTPUT DROP Log ...'
-      echo_cmd "${IPTABLES} -A OUTPUT -j LOG --log-prefix ${log_output_prefix} --log-level 7"
-    fi
-
-
-    if ${log_forward}; then
-
-      if [ -z "${log_forward_prefix}" ]; then
-        log_forward_prefix="${CMD}-Drop-Forward:"
-      fi
-
-      echo_info 'Add FORWARD DROP Log ...'
-      echo_cmd "${IPTABLES} -A FORWARD -j LOG --log-prefix ${log_forward_prefix} --log-level 7"
-    fi
-
+    # input_optional=$(iptables_default --list --input)
 
     local system=$(linux_type)
     if [[ ${system} == "centos" || ${system} == "debian" ]]; then
