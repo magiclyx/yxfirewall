@@ -1421,39 +1421,23 @@ cat <<EOF
 
   The following sub-command are allowed:
   start:    Start the firewall service
-  clear:    Clear all settings
-  save:     Save firewall change
-  default:  Set default police to filter table
-  filter:   Filter IPV4 package
+  clear:    Clear all rules and custom chain.
+  save:     Save firewall change on next startup.
+  default:  Set or display the default policy to filter table
+  rule:     Create ,search or display the custom chain.
+  filter:   Filter IPV4 package. (TODO)
   nat:      SNAT or DNAT IPV4 package
-
-  The following sub-command for fast usage
-  port:     Filter package with specific ports.
-  loopback: Filter package on loopback.
-
-  The following sub-command for protocol fast usage
-  ping:     Fast command for icmp ping
-  ssh:      Fast command for ssh
-  http:     Fast command for http
-  https:    Fast command for https
-  web:      Fast command for web (all http, https and others...)
-EOF
-}
-
-function usage_clear() {
-cat <<EOF
-  usage: ${CMD} clear [--info-level xxx]
-  Clear all settings.
-
-  The followint option are availiable:
-  --info-level     Command output level.
-                   The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
-                   It can be a number equal or great than 0.
-
+  wall:     For IPV4 package filtering
+  incoming: For IPV4 incoming package filtering
+  outgoing: For IPV4 outgoing filtering
+  server:   The rule work on 'New' connection on incoming and 'Established/Relate' connection on outgoing.
+  client:   The rule work on 'New' connection on outgoing and 'Established/Relate' connection on incoming.
+  loopback: Fast command for loopback interface.
+  config:   Read, write or remove the config file on specific domain.
 
   Other options
   Use '${CMD} --help' show all help information
-
+  
 EOF
 }
 
@@ -1464,8 +1448,40 @@ cat <<EOF
 
   The followint option are availiable:
   --info-level     Command output level.
-                   The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
-                   It can be a number equal or great than 0.
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
+                   'notice, 'info', 'debug', or a number greater than 0.
+
+                   You can use ${CMD} config to get or set it as the global value. 
+                     ${CMD} config --write --key info.level --val debug
+                     ${CMD} config --read --key info.level
+
+                     Use '${CMD} config --help' to see more information.
+
+  Other options
+  Use '${CMD} --help' show all help information
+
+EOF
+}
+
+function usage_clear() {
+cat <<EOF
+  usage: ${CMD} clear [--info-level xxx]
+  Clear all rule.
+
+  usage: ${CMD} clear <--help|-h> 
+  For this help information.
+
+  The followint option are availiable:
+  --info-level     Command output level.
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
+                   'notice, 'info', 'debug', or a number greater than 0.
+
+                   You can use ${CMD} config to get or set it as the global value. 
+                     ${CMD} config --write --key info.level --val debug
+                     ${CMD} config --read --key info.level
+
+                     Use '${CMD} config --help' to see more information.
+
 
   Other options
   Use '${CMD} --help' show all help information
@@ -1476,16 +1492,22 @@ EOF
 function usage_save() {
 cat <<EOF
   usage: ${CMD} save [option] 
-  Save the firewall change
+  Save the firewall change on next startup
+
+  usage: ${CMD} save <--help|-h> 
+  For this help information.
 
   The followint option are availiable:
-  --log-input      Add INPUT log at the end of INPUT chain. --log-input 'prefix:'
-  --log-output     Add OUTPUT log at the end of OUTPUT chain. --log-output 'prefix:'
-  --log-forward    Add FORWARD log at the end of FORWARD chain. --log-forward 'prefix:'
-
   --info-level     Command output level.
-                   The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
-                   It can be a number equal or great than 0.
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
+                   'notice, 'info', 'debug', or a number greater than 0.
+
+                   You can use ${CMD} config to get or set it as the global value. 
+                     ${CMD} config --write --key info.level --val debug
+                     ${CMD} config --read --key info.level
+
+                     Use '${CMD} config --help' to see more information.
+                  
 
   Other options
   Use '${CMD} --help' show all help information
@@ -1496,25 +1518,71 @@ EOF
 function usage_default() {
 cat <<EOF
   usage: ${CMD} default <accept|drop> [options]
-  Set default police to filter table. 
+  Set default policy to filter table. 
   NOTE: This command will always change all IPv6 policy to 'DROP'
 
   usage: ${CMD} default <--list|-l> [options]
-  Show default police to specific filter table
+  Show default policy to specific filter table
+
+  usage: ${CMD} default <--help|-h> 
+  For this help information.
 
   The following options are allowed:
-  --input    add input chain to target
-  --output   add output chain to target
-  --forward  add forward chain to target
-  --all      add all chain to target
+  --input   <ACCEPT|DROP>   add input chain to target
+  --output  <ACCEPT|DROP>   add output chain to target
+  --forward <ACCEPT|DROP>   add forward chain to target
+  --all     <ACCEPT|DROP>   add all chain to target
 
-  --list     show default police to specific filter table
+  --list     show default policy to specific filter table
 
   --info-level     Command output level.
-                   The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
-                   It can be a number equal or great than 0.
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
+                   'notice, 'info', 'debug', or a number greater than 0.
+
+                   You can use ${CMD} config to get or set it as the global value. 
+                     ${CMD} config --write --key info.level --val debug
+                     ${CMD} config --read --key info.level
+
+                     Use '${CMD} config --help' to see more information.
+
 
   -h|--help     show this help information
+
+  Other options
+  Use '${CMD} --help' show all help information
+
+EOF
+}
+
+function usage_rule() {
+  cat <<EOF
+  usage: ${CMD} rule <create|remove> --rule <name> [option] 
+  Create or remove a custom chain.
+
+  usage: ${CMD} rule exist --rule <name> [option] 
+  Test whether a rule exist
+
+  usage: ${CMD} rule exist --list [option] 
+  List all on specific table.
+
+  usage: ${CMD} rule <--help|-h> 
+  For this help information.
+
+  The followint option are availiable:
+  --table          The table of the operation. The default value is 'filter'
+
+  --rule           Indicate a rule. 
+
+  --info-level     Command output level. 
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
+                   'notice, 'info', 'debug', or a number greater than 0.
+
+                   You can use ${CMD} config to get or set it as the global value. 
+                     ${CMD} config --write --key info.level --val debug
+                     ${CMD} config --read --key info.level
+
+                     Use '${CMD} config --help' to see more information.
+                  
 
   Other options
   Use '${CMD} --help' show all help information
@@ -1530,6 +1598,9 @@ function usage_filter()
 
   usage: ${CMD} filter --list
   Show filter rule information
+
+  usage: ${CMD} filter <--help|-h> 
+  For this help information.
 
   The following options are allowed:
 
@@ -1562,9 +1633,15 @@ function usage_filter()
   
   --log            Record filter information.
 
-  --info-level     Command output level.
-                   The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
-                   It can be a number equal or great than 0.
+  --info-level     Command output level. 
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
+                   'notice, 'info', 'debug', or a number greater than 0.
+
+                   You can use ${CMD} config to get or set it as the global value. 
+                     ${CMD} config --write --key info.level --val debug
+                     ${CMD} config --read --key info.level
+
+                     Use '${CMD} config --help' to see more information.
 
   --help|-h        Show this help information
 
@@ -1572,6 +1649,7 @@ function usage_filter()
   Use '${CMD} --help' show all help information
 EOF
 }
+
 
 function usage_nat() {
 cat <<EOF
@@ -1581,6 +1659,10 @@ cat <<EOF
   usage: ${CMD} nat --list
   Show nat rule information.
 
+  usage: ${CMD} nat <--help|-h> 
+  For this help information.
+
+  The following options are allowed:
   --list        List nat rule information.
   --snat        Command work as SNAT(Source Network Address Translatioon)
   --dnat        Command work as DNAT(Destination Network Address Translation)
@@ -1590,9 +1672,15 @@ cat <<EOF
 
   --log         Record log on forward request
 
-  --info-level     Command output level.
-                   The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
-                   It can be a number equal or great than 0.
+  --info-level     Command output level. 
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
+                   'notice, 'info', 'debug', or a number greater than 0.
+
+                   You can use ${CMD} config to get or set it as the global value. 
+                     ${CMD} config --write --key info.level --val debug
+                     ${CMD} config --read --key info.level
+
+                     Use '${CMD} config --help' to see more information.
 
   Other options
   Use '${CMD} --help' show all help information
@@ -1600,30 +1688,76 @@ cat <<EOF
 EOF
 }
 
+function usage_wall()
+{
+  cat <<EOF
+  usage: ${CMD} Wall <accept|drop|block|return|reject> [options]
+  For IPV4 package filtering
 
-function usage_port() {
-cat <<EOF
-  usage: ${CMD} port <ACCEPT|DROP> <--service|--client> <--port xxx,xxx,xxx>
-  Fast command for indicate ports number on fireware. It is '${CMD} filter''s wrapper command.
+  usage: ${CMD} Incmong <accept|drop|block|return|reject> [options]
+  For IPV4 incoming package filtering
 
-  The followint options are allowed:
-  --service     Command work on incomming connection.
-  --client      Command work on outgoing connection.
-  --port        Indicate the port number.
+  usage: ${CMD} Outgoing <accept|drop|block|return|reject> [options]
+  For IPV4 outgoing filtering
 
-  --info-level     Command output level.
-                   The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
-                   It can be a number equal or great than 0.
+  usage: ${CMD} Server <accept|drop|block|return|reject> [options]
+  The rule work on 'New' connection on incoming and 'Established/Relate' connection on outgoing.
 
-  Others:
-  All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
+  usage: ${CMD} Client <accept|drop|block|return|reject> [options]
+  The rule work on 'New' connection on outgoing and 'Established/Relate' connection on incoming.
+
+  usage: ${CMD} --list [options]
+  List all rules on select chain.
+
+
+  The following options are allowed:
+  --list           List all rules on select chain.
+
+  --rule           Name of the current rule. If indicate a name, command will create a custom chain on table.
+
+  --interface      Name of an interface via which a package was received.
+  --not-interface  Same as '--interface' but sense is inverted.
+
+  --ip             Indicate ip-address from incomming connection. (support ip format: 192.168.0.1 | 192.168.0.1/24 | 192.168.0.1-192.168.0.99)
+  --not-ip         Same as '--ip' but sense is inverted.
+
+  --net            Same as --ip or --intreface. the command will test what the prameters is.
+
+  --port           Indicate ip-address from incomming connection.
+
+  --proto          The protocol of the rule or of the packet to check. There is three types protocol support
+                   1. The specified protocol can be one of 'tcp' , 'udp', 'udplite', 'icmp', 'esp', 'ah', 'sctp',
+                      'mh' or the special keyward 'all', or it can be a numeric value, representing one of these protocols or a different one.
+                   2. Some great known protocol with protocol number. 'FTP', 'DNS', 'SMTP', 'POP3', 'DHCP', 'MYSQL' ...
+                   3. The protocol regist in hook handler.
+  --proto-flag     Addition optional of iptables flags. 
+
+  --limit          Set the rule limit. the following limit are support. You can indicate mutiple limit in one command.
+                   1. <limit>:<limit val>:[burst]
+                   2. <limit-above/limit-upto>:<name>:<limit val>:[burst]:[mode]:[srcmask]:[dstmask]:[expire]:[tc]
+                   3. <recent-set,remove,update,check>:<name>:<seconds>:[hitcount]:[src,dest,ttl]
+                   4. <length>:<length>
+                   5. <connect-above/connect-upto>:<limit>:[src/dest]:[mask]
+                   6. <time>:<starttime>:<endtime>:<weekdays>:<monthdays>
   
-  NOTE: In this command, you should ignore '--in-port' and '--out-port' optional.
-        These two optional perform the same as '--port'.
+  --log            Record a log when rule break. The parmater format is '--log <prifix>:[rule-limit]'. 
+                   The rule-limit is the same format as `--limt` string. Use '-' to re-use the previous --limit string.
+                   
+
+  --info-level     Command output level. 
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
+                   'notice, 'info', 'debug', or a number greater than 0.
+
+                   You can use ${CMD} config to get or set it as the global value. 
+                     ${CMD} config --write --key info.level --val debug
+                     ${CMD} config --read --key info.level
+
+                     Use '${CMD} config --help' to see more information.
+
+  --help|-h        Show this help information
 
   Other options
   Use '${CMD} --help' show all help information
-
 EOF
 }
 
@@ -1631,15 +1765,18 @@ EOF
 function usage_loopback() {
 cat <<EOF
   usage: ${CMD} loopback <ACCEPT|DROP> [-infolevel xxx]
-  Fast command for loopback interface. It is '${CMD} filter''s wrapper command.
+  Fast command for loopback interface.
 
 
-  --info-level    Command output level.
-                  The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
-                  It can be a number equal or great than 0.
+  --info-level     Command output level. 
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
+                   'notice, 'info', 'debug', or a number greater than 0.
 
+                   You can use ${CMD} config to get or set it as the global value. 
+                     ${CMD} config --write --key info.level --val debug
+                     ${CMD} config --read --key info.level
 
-  Use '${CMD} filter --help' for more information.
+                     Use '${CMD} config --help' to see more information.
 
 
   Other options
@@ -1651,171 +1788,46 @@ EOF
 }
 
 
-function usage_ping() {
-cat <<EOF
-  usage: ${CMD} ping <ACCEPT|DROP> <--service|--client> <--port xxx,xxx,xxx>
-  Fast command for icmp ping. It is '${CMD} filter''s wrapper command.
-
-  The followint options are allowed:
-  --service     For incomming ping request package.
-  --client      For outgoing ping request package.
-
-  --info-level  Command output level.
-                The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
-                It can be a number equal or great than 0.
-
-  Others:
-  All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
-  
-  NOTE: In this command, you should ignore '--proto' optional.
-
-  Other options
-  Use '${CMD} --help' show all help information
-
-EOF
-}
-
-
-function usage_ssh() {
-cat <<EOF
-  usage: ${CMD} ssh <ACCEPT|DROP> <--service|--client> <optional>
-  Fast command for ssh. It is '${CMD} filter''s wrapper command.
-
-  The followint options are allowed:
-  --service     For ssh service request package.
-  --client      For ssh client request package.
-  --port        Indicate the port number. default port number is 22.
-
-  --info-level  Command output level.
-                The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
-                It can be a number equal or great than 0.
-
-  Others:
-  All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
-  
-  NOTE: In this command, you should ignore '--in-port' and '--out-port' optional.
-        These two optional perform the same as '--port'.
-  NOTE: In this command, you should ignore '--proto' optional.
-
-  Other options
-  Use '${CMD} --help' show all help information
-
-EOF
-}
-
-
-function usage_http() {
-cat <<EOF
-  usage: ${CMD} http <ACCEPT|DROP> <--service|--client> <optional>
-  Fast command for http. It is '${CMD} filter''s wrapper command.
-
-  The followint options are allowed:
-  --service     For ssh service request package.
-  --client      For ssh client request package.
-  --port        Indicate the port number. default port number is 80.
-
-  --info-level  Command output level.
-                The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
-                It can be a number equal or great than 0.
-
-  Others:
-  All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
-  
-  NOTE: In this command, you should ignore '--in-port' and '--out-port' optional.
-        These two optional perform the same as '--port'.
-  NOTE: In this command, you should ignore '--proto' optional.
-
-  Other options
-  Use '${CMD} --help' show all help information
-
-EOF
-}
-
-
-
-function usage_https() {
-cat <<EOF
-  usage: ${CMD} https <ACCEPT|DROP> <--service|--client> <optional>
-  Fast command for https. It is '${CMD} filter''s wrapper command.
-
-  The followint options are allowed:
-  --service     For ssh service request package.
-  --client      For ssh client request package.
-  --port        Indicate the port number. default port number is 443.
-
-  --info-level  Command output level.
-                The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
-                It can be a number equal or great than 0.
-
-  Others:
-  All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
-  
-  NOTE: In this command, you should ignore '--in-port' and '--out-port' optional.
-        These two optional perform the same as '--port'.
-  NOTE: In this command, you should ignore '--proto' optional.
-
-  Other options
-  Use '${CMD} --help' show all help information
-
-EOF
-}
-
-
-function usage_web() {
-cat <<EOF
-  usage: ${CMD} web <ACCEPT|DROP> <--service|--client> <optional>
-  Fast command for web. It is '${CMD} filter''s wrapper command.
-
-  The followint options are allowed:
-  --service     For ssh service request package.
-  --client      For ssh client request package.
-  --port        Indicate the port number. default port number is 80,443.
-
-  --info-level  Command output level.
-                The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
-                It can be a number equal or great than 0.
-
-  Others:
-  All '${CMD} filter' optional are support. Use '${CMD} filter --help' for more information.
-  
-  NOTE: In this command, you should ignore '--in-port' and '--out-port' optional.
-        These two optional perform the same as '--port'.
-  NOTE: In this command, you should ignore '--proto' optional.
-
-  Other options
-  Use '${CMD} --help' show all help information
-
-EOF
-}
-
-
 function usage_config() {
-cat <<EOF
-  usage: ${CMD} config <--read|--write|--list|--help> <optional>
-  'Show' or 'Change' ${CMD} config property
+  cat <<EOF
+  usage: ${CMD} domain <--read|--remove> <--key keyval>
+  Read or remove a key-value item on domain config file. If not provide a domain, use 'config' as default
 
-  usage: ${CMD} config --help
-  Display this help information
+  usage: ${CMD} domain <--write> <--key keyval> <--val val>
+  Write a key-value item on domain config file. If not provide a domain, use 'config' as default
+
+  usage: ${CMD} Wall <--help|-h> 
+  For this help information.
 
 
-  The follow operation:
-  --read        Read specific config with 'key'
-  --write       Write config item with 'key' and 'val'
-  --remove      Remove a config item with 'key'
-  --list        List all config items
-  --help        Show this help information
-  
+  The following domain are support:
+  config        The global domain.
+                Support comfiguration items:
+                info.level :debug level. Same as --info-level optional, But work on gobal.
+
+  rule.<proto>  domain on specific protocol (TODO)
+                Support comfiguration items:
+                protocol=xxx
+                port=xxx
+
+
   The following options are allowed:
-  --key         Name of a config property
-  --val         Value of a config property
+  --read       read a value of the config file on specific domain.
+  --write      write a key-value item on specific domain.
+  --remove     remove a key-value item on specific domain.
 
-  The following additional options are allowed:
-  --info-level  Command output level.
-              The specific level can be one of 'silent', 'fatal', 'error', 'warning', 'notice, 'info', 'debug'.
-              It can be a number equal or great than 0.
-  
-  Support comfiguration items:
-  info.level    Debug level. Same as --info-level optional, But work on gobal.
+  --key        key of the key-value config item.
+  --val        value of the key-value config item.
+
+  --info-level     Command output level. 
+                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
+                   'notice, 'info', 'debug', or a number greater than 0.
+
+                   You can use ${CMD} config to get or set it as the global value. 
+                     ${CMD} config --write --key info.level --val debug
+                     ${CMD} config --read --key info.level
+
+                     Use '${CMD} config --help' to see more information.
 
   Other options
   Use '${CMD} --help' show all help information
@@ -2006,7 +2018,7 @@ function iptables_start()
       echo_cmd "start iptables.service"
       echo_cmd "enable iptables.service"
     elif [[ ${system} == "ubuntu" ]]; then
-      :
+      : # do nothing
     else
       :
     fi
@@ -2055,7 +2067,7 @@ function iptables_save()
       ;;
 
 			--help )
-				show_help=$1
+				show_help=true
 			;;
 
 			*)
@@ -3180,7 +3192,7 @@ function iptables_wall()
 
 
   if ${show_help}; then
-    usage_XXX
+    usage_wall
     exit 0
   else
 
@@ -3571,7 +3583,7 @@ function iptables_srv()
 
 
   if ${show_help}; then
-    usage_XXX
+    usage_wall
     exit 0
   else
 
@@ -3873,7 +3885,7 @@ function iptables_rule()
 	done
 
   if ${show_help}; then
-    usage_xxx
+    usage_rule
     exit 0
   else
 
@@ -6114,7 +6126,6 @@ elif [[ ${sub_cmd} == "server" ]] || [[ ${sub_cmd} == "Server" ]] || [[ ${sub_cm
   iptables_wall server "$@"
 elif [[ ${sub_cmd} == "client" ]] || [[ ${sub_cmd} == "Client" ]] || [[ ${sub_cmd} == "CLIENT" ]]; then
   iptables_wall client "$@"
-
 elif [[ ${sub_cmd} == "local" ]]; then
   iptables_wall incoming "$@"
 elif [[ ${sub_cmd} == "loopback" ]]; then
