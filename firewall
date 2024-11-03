@@ -1593,8 +1593,8 @@ EOF
 function usage_filter()
 {
   cat <<EOF
-  usage: ${CMD} filter <accept|drop> [options]
-  For IPV4 package filtering
+  usage: ${CMD} filter <ACCEPT|DROP|BLOCK|RETURN|REJECT|REJECT-WITH|LOG> [options]
+  For IPV4 package filtering. It's a wrapper of iptables.
 
   usage: ${CMD} filter --list
   Show filter rule information
@@ -1604,46 +1604,59 @@ function usage_filter()
 
   The following options are allowed:
 
-  --list           List filter rule information.
-
-  --interface      Name of an interface via which a package was received.
-  --not-interface  Same as '--interface' but sense is inverted.
-
-  --proto          The protocol of the rule or of the packet to check. The specified protocol can be one of 'tcp'
-                   , 'udp', 'udplite', 'icmp', 'esp', 'ah', 'sctp', 'mh' or the special keyward 'all', or it can 
-                   be a numeric value, representing one of these protocols or a different one.
-  --inflag         Aditional parms of '--proto'. (Currently, only support --icmp-type for icmp protocol)
-  --outflag        Aditional parms of '--proto'. (Currently, only support --icmp-type for icmp protocol)
-
-  --in-port        Indicate ports for incomming connection. (use ',' for muti-port num. port1,port2,...)
-  --out-port       Indicate ports for outgoing connection. (use ',' for muti-port num. port1,port2,...)
-
-  --ip-from        Indicate ip-address from incomming connection. (support ip format: 192.168.0.1 | 192.168.0.1/24 | 192.168.0.1-192.168.0.99)
-  --ip-notfrom     Same as '--ip-from' but sense is inverted.
-  --ip-to          Indicate ip-address from outgoing connection (support ip format: 192.168.0.1 | 192.168.0.1/24 | 192.168.0.1-192.168.0.99)
-  --ip-notto       Same as 'ip-to' but sense is inverted.
-
-  --mac            Indicate a mac-address. (e.g. 11:22:33:44:55:66)
-  --notmac         Same as '--mac' but sense is inverted.
-
-  --limit rate     Maximum average matching rate: specified as a number, with an optional (/second|/minute|/hour|day). the default is 3/hour
-  --notlimit       Same as '--limit rate' but sense is inverted
-  --limit-burst    Maximum initial number of packets to match: this number gets recharged by one every time the limit specified above is not reached,
-                   up to this number; the default is 5.
+  --list               List filter rule information.
   
-  --log            Record filter information.
+  --rule               Name of the current rule. If indicate a name, command will create a custom chain on table.
 
-  --info-level     Command output level. 
-                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
-                   'notice, 'info', 'debug', or a number greater than 0.
+  --fragment           The rule only refers to second and further IPv4 fragments of fragmented packets.
+  --not-fragment       Same as --fragment. but sense is inverted.
 
-                   You can use ${CMD} config to get or set it as the global value. 
-                     ${CMD} config --write --key info.level --val debug
-                     ${CMD} config --read --key info.level
+  --interface-in       Name of an interface via which a package was received.
+  --interface-out      Name of an interface via which a package was send out.
+  --not-interface-in   Same as '--interface-in' but sense is inverted.
+  --not-interface-out  Same as '--interface-out' but sense is inverted.
 
-                     Use '${CMD} config --help' to see more information.
+  --proto              The protocol of the rule or of the packet to check. The specified protocol can be one of 'tcp'
+                       , 'udp', 'udplite', 'icmp', 'esp', 'ah', 'sctp', 'mh' or the special keyward 'all', or it can 
+                       be a numeric value, representing one of these protocols or a different one.
+  --proto-flag         Addition optional of iptables flags. 
 
-  --help|-h        Show this help information
+  --mac                Indicate a mac-address. (e.g. 11:22:33:44:55:66)
+  --notmac             Same as '--mac' but sense is inverted.
+
+  --ip-from            Indicate ip-address from incomming connection. (support ip format: 192.168.0.1 | 192.168.0.1/24 | 192.168.0.1-192.168.0.99)
+  --not-ip-from        Same as '--ip-from' but sense is inverted.
+  --ip-to              Indicate ip-address from outgoing connection (support ip format: 192.168.0.1 | 192.168.0.1/24 | 192.168.0.1-192.168.0.99)
+  --not-ip-to          Same as 'ip-to' but sense is inverted.
+
+  --port-from          Indicate ports for incomming connection. (use ',' for muti-port num. port1,port2,...)
+  --port-to            Indicate ports for outgoing connection. (use ',' for muti-port num. port1,port2,...)
+
+  --limit              Set the rule limit. the following limit are support. You can indicate mutiple limit in one command.
+                          1. <limit>:<limit val>:[burst]
+                          2. <limit-above/limit-upto>:<name>:<limit val>:[burst]:[mode]:[srcmask]:[dstmask]:[expire]:[tc]
+                          3. <recent-set,remove,update,check>:<name>:<seconds>:[hitcount]:[src,dest,ttl]
+                          4. <length>:<length>
+                          5. <connect-above/connect-upto>:<limit>:[src/dest]:[mask]
+                          6. <time>:<starttime>:<endtime>:<weekdays>:<monthdays>
+  
+  --state              State of the package. It can be the following values: NEW, ESTABLISHED, RELATED, INVALID, UNTRACKED.
+  
+  --log                Record a log when rule break. The parmater format is '--log <prifix>:[rule-limit]'. 
+                       The rule-limit is the same format as `--limt` string. Use '-' to re-use the previous --limit string.
+
+  --info-level         Command output level. 
+                       The specific level can be one of 'silent', 'fatal', 'error', 'warning',
+                       'notice, 'info', 'debug', or a number greater than 0.
+
+                       You can use ${CMD} config to get or set it as the global value. 
+                         ${CMD} config --write --key info.level --val debug
+                         ${CMD} config --read --key info.level
+
+                         Use '${CMD} config --help' to see more information.
+
+  --help|-h            Show this help information
+
 
   Other options
   Use '${CMD} --help' show all help information
