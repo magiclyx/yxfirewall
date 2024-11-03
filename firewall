@@ -2828,7 +2828,7 @@ function iptables_wrapper()
 }
 
 
-function iptables_filter2()
+function iptables_filter()
 {
 
   local info_level=
@@ -5902,7 +5902,7 @@ elif [[ ${sub_cmd} == "default" ]]; then
 elif [[ ${sub_cmd} == "rule" ]]; then
   iptables_rule $@
 elif [[ ${sub_cmd} == "filter" ]]; then
-  iptables_filter2 $@
+  iptables_filter $@
 elif [[ ${sub_cmd} == "wall" ]]; then
   iptables_wall "${@}"
 elif [[ ${sub_cmd} == "nat" ]]; then
