@@ -1402,24 +1402,6 @@ function _parse_limit2()
 #   fi
 # }
 
-####################################################################################################
-# rule 
-####################################################################################################
-
-function _exist_rule()
-{
-  local rule=$1
-
-  if [ -n "${rule}" ]; then
-    if strcontains "${rule}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING' --ignorecase; then
-      return 0
-    elif ${IPTABLES} -S | grep -q "\-N ${rule}"; then
-      return 0
-    fi
-  fi
-
-  return 1
-}
 
 ####################################################################################################
 # usage
@@ -2782,8 +2764,8 @@ function iptables_wrapper()
       fi
 
       if [ -n "${rule}" ]; then
-        if ! _exist_rule "${rule}"; then
-          echo_cmd "${IPTABLES} -N ${rule}"
+        if ! iptables_rule exist --rule "${rule}"; then
+          iptables_rule create --rule "${rule}"
         fi
       fi
 
@@ -4219,6 +4201,12 @@ function iptables_rule()
   if [[ ${option} == 'create' ]] || [[ ${option} == 'Create' ]] || [[ ${option} == 'CREATE' ]] ; then
     option="CREATE"
     shift
+  elif [[ ${option} == 'exist' ]] || [[ ${option} == 'Exist' ]] || [[ ${option} == 'EXIST' ]] ; then
+    option="EXIST"
+    shift
+  elif [[ ${option} == 'list' ]] || [[ ${option} == 'List' ]] || [[ ${option} == 'LIST' ]] ; then
+    option="LIST"
+    shift
   else
     option=
   fi
@@ -4268,9 +4256,26 @@ function iptables_rule()
 
       echo_info "Create new rule :'${rule}'..."
       echo_cmd "${IPTABLES} -N ${rule}"
+
+      return 0
+    elif [[ "${option}" == 'LIST' ]]; then
+      for rule in $(${IPTABLES} -S | grep "\-N "); do
+        if ! [[ ${rule} =~ ^\-N.*$ ]]; then
+          echo "${rule}"
+        fi
+      done
+      return 0
+    elif [[ "${option}" == 'EXIST' ]]; then
+      echo "Rule exist? ${rule}"
+      if strcontains "${rule}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING' --ignorecase; then
+        return 0
+      elif ${IPTABLES} -S | grep -q "\-N ${rule}"; then
+        return 0
+      fi
     fi
   fi
 
+  return 1
 }
 
 
