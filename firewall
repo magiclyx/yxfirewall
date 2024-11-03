@@ -4281,6 +4281,13 @@ function iptables_rule()
 
       return $?
     elif [[ "${option}" == 'LIST' ]]; then
+      # list common on specific table
+      local common_chain_list_str=${common_tables["${table}"]}
+      for common_chain in $(echo ${common_chain_list_str}); do
+        echo ${common_chain}
+      done
+
+      # list all custom chain on specific table.
       for rule in $(${IPTABLES} -S | grep "\-N "); do
         if ! [[ ${rule} =~ ^\-N.*$ ]]; then
           echo "${rule}"
