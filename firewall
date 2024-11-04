@@ -1425,9 +1425,8 @@ cat <<EOF
   save:     Save firewall change on next startup.
   default:  Set or display the default policy to filter table
   rule:     Create ,search or display the custom chain.
-  filter:   Filter IPV4 package. (TODO)
+  filter:   Filter IPV4 package.
   nat:      SNAT or DNAT IPV4 package
-  wall:     For IPV4 package filtering
   incoming: For IPV4 incoming package filtering
   outgoing: For IPV4 outgoing filtering
   server:   The rule work on 'New' connection on incoming and 'Established/Relate' connection on outgoing.
@@ -1704,9 +1703,6 @@ EOF
 function usage_wall()
 {
   cat <<EOF
-  usage: ${CMD} Wall <accept|drop|block|return|reject> [options]
-  For IPV4 package filtering
-
   usage: ${CMD} Incmong <accept|drop|block|return|reject> [options]
   For IPV4 incoming package filtering
 
@@ -1733,8 +1729,10 @@ function usage_wall()
 
   --ip             Indicate ip-address from incomming connection. (support ip format: 192.168.0.1 | 192.168.0.1/24 | 192.168.0.1-192.168.0.99)
   --not-ip         Same as '--ip' but sense is inverted.
-
   --force-ip       Convert all interface to ip/mask.
+
+  --mac            Indicate a mac-address. (e.g. 11:22:33:44:55:66)
+  --notmac         Same as '--mac' but sense is inverted.
 
   --net            Same as --ip or --intreface. the command will test what the prameters is.
 
@@ -5905,8 +5903,6 @@ elif [[ ${sub_cmd} == "rule" ]]; then
   iptables_rule $@
 elif [[ ${sub_cmd} == "filter" ]]; then
   iptables_filter $@
-elif [[ ${sub_cmd} == "wall" ]]; then
-  iptables_wall "${@}"
 elif [[ ${sub_cmd} == "nat" ]]; then
   iptables_nat $@
 elif [[ ${sub_cmd} == "incoming" ]] || [[ ${sub_cmd} == "Incoming" ]] || [[ ${sub_cmd} == "INCOMING" ]]; then
