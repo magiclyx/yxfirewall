@@ -1371,7 +1371,7 @@ cat <<EOF
   clear:    Clear all rules and custom chain.
   save:     Save firewall change on next startup.
   default:  Set or display the default policy to filter table
-  rule:     Create ,search or display the custom chain.
+  chain:    Create ,search or display the custom chain.
   filter:   Filter IPV4 package.
   nat:      SNAT or DNAT IPV4 package
   incoming: For IPV4 incoming package filtering
@@ -1500,24 +1500,24 @@ cat <<EOF
 EOF
 }
 
-function usage_rule() {
+function usage_chain() {
   cat <<EOF
-  usage: ${CMD} rule <create|remove> --rule <name> [option] 
+  usage: ${CMD} chain <create|remove> --name <name> [option] 
   Create or remove a custom chain.
 
-  usage: ${CMD} rule exist --rule <name> [option] 
-  Test whether a rule exist
+  usage: ${CMD} chain exist --name <name> [option] 
+  Test whether a chain exist
 
-  usage: ${CMD} rule exist --list [option] 
-  List all on specific table.
+  usage: ${CMD} chain exist --list [option] 
+  List all chains on specific table.
 
-  usage: ${CMD} rule <--help|-h> 
+  usage: ${CMD} chain <--help|-h> 
   For this help information.
 
   The followint option are availiable:
   --table          The table of the operation. The default value is 'filter'
 
-  --rule           Indicate a rule. 
+  --name           Indicate the chain name. 
 
   --info-level     Command output level. 
                    The specific level can be one of 'silent', 'fatal', 'error', 'verbose',
@@ -2735,8 +2735,8 @@ function iptables_wrapper()
       fi
 
       if [ -n "${rule}" ]; then
-        if ! iptables_rule exist --rule "${rule}"; then
-          iptables_rule create --rule "${rule}"
+        if ! iptables_chain exist --name "${rule}"; then
+          iptables_chain create --name "${rule}"
         fi
       fi
 
@@ -3707,9 +3707,9 @@ function iptables_nat()
 
 }
 
-function iptables_rule()
+function iptables_chain()
 {
-  local rule=
+  local name=
   local table=
   local show_help=false
   local info_level=
@@ -3724,16 +3724,16 @@ function iptables_rule()
 
 
   local option=$1
-  if strcontains "${option}" 'Create' --ignorecase; then
+  if strcontains "${option}" 'create' --ignorecase; then
     option="CREATE"
     shift
-  elif strcontains "${option}" 'Exist' --ignorecase; then
+  elif strcontains "${option}" 'exist' --ignorecase; then
     option="EXIST"
     shift
-  elif strcontains "${option}" 'Remove' --ignorecase; then
+  elif strcontains "${option}" 'remove' --ignorecase; then
     option="REMOVE"
     shift
-  elif strcontains "${option}" 'List' --ignorecase; then
+  elif strcontains "${option}" 'list' --ignorecase; then
     option="LIST"
     shift
   else
@@ -3749,9 +3749,9 @@ function iptables_rule()
 				table=$1
 			;;
 
-			--rule )
+			--name )
         shift
-				rule=$1
+				name=$1
 			;;
 
       --info-level )
@@ -3772,7 +3772,7 @@ function iptables_rule()
 	done
 
   if ${show_help}; then
-    usage_rule
+    usage_chain
     exit 0
   else
 
@@ -3789,12 +3789,12 @@ function iptables_rule()
     fi
 
     if [[ "${option}" == 'CREATE' ]]; then
-      if [ -z "${rule}" ]; then
-        echo_fatal "Must indicate rule name with --rule <name>"
+      if [ -z "${name}" ]; then
+        echo_fatal "Must indicate a chain name with --name <name>"
       fi
 
-      echo_verbose "Create new rule :'${rule}'"
-      echo_cmd "${IPTABLES} -N ${rule}"
+      echo_verbose "Create new chain :'${name}'"
+      echo_cmd "${IPTABLES} -N ${name}"
 
       return $?
     elif [[ "${option}" == 'LIST' ]]; then
@@ -3805,16 +3805,16 @@ function iptables_rule()
       done
 
       # list all custom chain on specific table.
-      for rule in $(${IPTABLES} -S | grep "\-N "); do
-        if ! [[ ${rule} =~ ^\-N.*$ ]]; then
-          echo "${rule}"
+      for chain_str in $(${IPTABLES} -S | grep "\-N "); do
+        if ! [[ ${chain_str} =~ ^\-N.*$ ]]; then
+          echo "${chain_str}"
         fi
       done
       return 0
     elif [[ "${option}" == 'REMOVE' ]]; then
 
-      if [ -z "${rule}" ]; then
-        echo_fatal "Rule name must not be empty, use --rule to indicate a rule name. try '-h' or '--help' to show more information "
+      if [ -z "${name}" ]; then
+        echo_fatal "Chain name must not be empty, use --name to indicate a chain name. try '-h' or '--help' to show more information "
       fi
 
       local -a chain_list
@@ -3824,7 +3824,7 @@ function iptables_rule()
         chain_list=(${chain_list[*]} ${common_chain});
       done
       # add all custom chain on chan_list
-      for custom_chain in $(iptables_rule list --rule ${rule}); do
+      for custom_chain in $(iptables_chain list --name ${name}); do
         chain_list=(${chain_list[*]} ${custom_chain});
       done
 
@@ -3832,13 +3832,13 @@ function iptables_rule()
       for chain in ${chain_list[*]}; do
         
         # ignore the delete chain
-        if [[ "${chain}" == ${rule} ]]; then
+        if [[ "${chain}" == ${name} ]]; then
           continue
         fi
 
         # remove all reference of the chain from other tables.
         while true; do
-          local line_num=$(${IPTABLES} -L ${chain} --line-numbers | grep -m 1 "${rule}" | awk '{print $1}' | grep -o "[^ ]\+\( \+[^ ]\+\)*");
+          local line_num=$(${IPTABLES} -L ${chain} --line-numbers | grep -Ev "Chain .* \((policy .*|[0-9]* references)\)$" | grep -m 1 "${name}" | awk '{print $1}' | grep -o "[^ ]\+\( \+[^ ]\+\)*");
           if [ -z "${line_num}" ]; then
             break
           fi
@@ -3848,20 +3848,20 @@ function iptables_rule()
       done
 
       # clear all contains of the chain
-      echo_cmd "${IPTABLES} -t ${table} --flush ${rule}"
+      echo_cmd "${IPTABLES} -t ${table} --flush ${name}"
       # delete the chain
-      echo_cmd "${IPTABLES} -t ${table} --delete-chain ${rule}"
+      echo_cmd "${IPTABLES} -t ${table} --delete-chain ${name}"
 
       return $?
     elif [[ "${option}" == 'EXIST' ]]; then
 
-      if [ -z "${rule}" ]; then
-        echo_fatal "Rule name must not be empty, use --rule to indicate a rule name. try '-h' or '--help' to show more information "
+      if [ -z "${name}" ]; then
+        echo_fatal "Chain name must not be empty, use --name to indicate a chain name. try '-h' or '--help' to show more information "
       fi
 
-      if strcontains "${rule}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING' --ignorecase; then
+      if strcontains "${name}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING' --ignorecase; then
         return 0
-      elif ${IPTABLES} -S | grep -q "\-N ${rule}"; then
+      elif ${IPTABLES} -S | grep -q "\-N ${name}"; then
         return 0
       fi
     fi
@@ -5859,8 +5859,8 @@ elif strcontains "${sub_cmd}" 'save' --ignorecase; then
   iptables_save $@
 elif strcontains "${sub_cmd}" 'default' --ignorecase; then
   iptables_default $@
-elif strcontains "${sub_cmd}" 'rule' --ignorecase; then
-  iptables_rule $@
+elif strcontains "${sub_cmd}" 'chain' --ignorecase; then
+  iptables_chain $@
 elif strcontains "${sub_cmd}" 'filter' --ignorecase; then
   iptables_filter $@
 elif strcontains "${sub_cmd}" 'nat' --ignorecase; then
