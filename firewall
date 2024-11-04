@@ -18,10 +18,7 @@ DEBUG=true
 INFO_SILENT=0
 INFO_FATAL=1
 INFO_ERROR=4
-INFO_WARNING=5
-INFO_NOTICE=7
-INFO_INFO=8
-INFO_DEBUG=9
+INFO_VERBOSE=9
 INFO_LEVEL=${INFO_ERROR} # default error
 
 #CMD
@@ -444,14 +441,14 @@ function ip_forward_v4()
 
   # 使用sed更改sysctl.conf中的ip_forward值
   #:echo_cmd
-  echo_info 'Set ipv4.ip_forward = 1 ...'
-  echo_debug "sed -i \"s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g\" \"${SYSCFG_PATH}\""
+  echo_verbose 'Set ipv4.ip_forward = 1 ...'
+  echo_verbose "sed -i \"s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g\" \"${SYSCFG_PATH}\""
   sed -i "s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g" "${SYSCFG_PATH}"
  
   #如果需要，立即应用更改
   #:echo_cmd
-  echo_info 'Make system configure enable...'
-  echo_debug "${SYSCTL} -p > /dev/null"
+  echo_verbose 'Make system configure enable...'
+  echo_verbose "${SYSCTL} -p > /dev/null"
   "${SYSCTL}" -p > /dev/null
 
   local result=0
@@ -666,20 +663,14 @@ function set_info_level()
     if yx_str_checkfmt '^([0-9])+$' "${info_level}"; then
       INFO_LEVEL=${info_level}
     else
-      if [[ ${info_level} == 'silent' ]] || [[ ${info_level} == 'Silent' ]] || [[ ${info_level} == 'SILENT' ]]; then
+      if strcontains "${info_level}" 'silent' --ignorecase; then
         INFO_LEVEL=${INFO_SILENT}
-      elif [[ ${info_level} == 'fatal' ]] || [[ ${info_level} == 'Fatal' ]] || [[ ${info_level} == 'FATAL' ]]; then
+      elif strcontains "${info_level}" 'fatal' --ignorecase; then
         INFO_LEVEL=${INFO_FATAL}
-      elif [[ ${info_level} == 'error' ]] || [[ ${info_level} == 'Error' ]] || [[ ${info_level} == 'ERROR' ]]; then
+      elif strcontains "${info_level}" 'error' --ignorecase; then
         INFO_LEVEL=${INFO_ERROR}
-      elif [[ ${info_level} == 'warning' ]] || [[ ${info_level} == 'Warning' ]] || [[ ${info_level} == 'WARNING' ]]; then
-        INFO_LEVEL=${INFO_WARNING}
-      elif [[ ${info_level} == 'notice' ]] || [[ ${info_level} == 'Notice' ]] || [[ ${info_level} == 'NOTICE' ]]; then
-        INFO_LEVEL=${INFO_NOTICE}
-      elif [[ ${info_level} == 'info' ]] || [[ ${info_level} == 'Info' ]] || [[ ${info_level} == 'INFO' ]]; then
-        INFO_LEVEL=${INFO_INFO}
-      elif [[ ${info_level} == 'debug' ]] || [[ ${info_level} == 'Debug' ]] || [[ ${info_level} == 'DEBUG' ]]; then
-        INFO_LEVEL=${INFO_DEBUG}
+      elif strcontains "${info_level}" 'verbose' --ignorecase; then
+        INFO_LEVEL=${INFO_VERBOSE}
       else
         echo_fatal "Unknown info level:${info_level}"
       fi
@@ -689,9 +680,9 @@ function set_info_level()
 }
 
 
-function echo_debug()
+function echo_verbose()
 {
-  if (( "${INFO_LEVEL}" < "${INFO_DEBUG}" )); then
+  if (( "${INFO_LEVEL}" < "${INFO_VERBOSE}" )); then
     return
   fi
 
@@ -704,67 +695,6 @@ function echo_debug()
 	fi
 
   (>&1 echo "${str}")
-}
-
-# info
-function echo_info()
-{
-  if (( "${INFO_LEVEL}" < "${INFO_INFO}" )); then
-    return
-  fi
-
-  local str=
-	if (( $# == 0 )) ; then
-		read -r -t 5 -d $'\0' str
-#		num=`cat < /dev/stdin`
-	else
-		str="$*"
-	fi
-
-  local green=$(tput setaf 2);
-  local reset=$(tput sgr0);
-  (>&1 echo "${green}${str}${reset}")
-}
-
- # notification   
-function echo_noti()
-{
-  if (( "${INFO_LEVEL}" < "${INFO_NOTICE}" )); then
-    return
-  fi
-
-  local str=
-	if (( $# == 0 )) ; then
-		read -r -t 5 -d $'\0' str
-#		num=`cat < /dev/stdin`
-	else
-		str="$*"
-	fi
-
-  local blue=$(tput setaf 4);
-  local reset=$(tput sgr0);
-  
-  (>&1 echo "${blue}${str}${reset}")
-}
-
-function echo_warn()
-{
-  if (( "${INFO_LEVEL}" < "${INFO_WARNING}" )); then
-    return
-  fi
-
-  local str=
-	if (( $# == 0 )) ; then
-		read -r -t 5 -d $'\0' str
-#		num=`cat < /dev/stdin`
-	else
-		str="$*"
-	fi
-
-  local yellow=$(tput setaf 3);
-  local reset=$(tput sgr0);
-
-  (>&2 echo "${yellow}${str}${reset}")
 }
 
 function echo_err()
@@ -812,7 +742,7 @@ function echo_fatal()
 # Use '#:echo_cmd' mark all not handle code place
 function echo_cmd()
 {
-  echo_debug "$@"
+  echo_verbose "$@"
   $@
 }
 
@@ -1446,15 +1376,15 @@ cat <<EOF
   Start the firewall service
 
   The followint option are availiable:
-  --info-level     Command output level.
-                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
-                   'notice, 'info', 'debug', or a number greater than 0.
+  --info-level     Command output level. 
+                   The specific level can be one of 'silent', 'fatal', 'error', 'verbose',
+                   or a number greater than 0.
 
                    You can use ${CMD} config to get or set it as the global value. 
-                     ${CMD} config --write --key info.level --val debug
-                     ${CMD} config --read --key info.level
+                      ${CMD} config --write --key info.level --val debug
+                      ${CMD} config --read --key info.level
 
-                     Use '${CMD} config --help' to see more information.
+                   Use '${CMD} config --help' to see more information.
 
   Other options
   Use '${CMD} --help' show all help information
@@ -1471,15 +1401,15 @@ cat <<EOF
   For this help information.
 
   The followint option are availiable:
-  --info-level     Command output level.
-                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
-                   'notice, 'info', 'debug', or a number greater than 0.
+  --info-level     Command output level. 
+                   The specific level can be one of 'silent', 'fatal', 'error', 'verbose',
+                   or a number greater than 0.
 
                    You can use ${CMD} config to get or set it as the global value. 
-                     ${CMD} config --write --key info.level --val debug
-                     ${CMD} config --read --key info.level
+                      ${CMD} config --write --key info.level --val debug
+                      ${CMD} config --read --key info.level
 
-                     Use '${CMD} config --help' to see more information.
+                   Use '${CMD} config --help' to see more information.
 
 
   Other options
@@ -1497,15 +1427,15 @@ cat <<EOF
   For this help information.
 
   The followint option are availiable:
-  --info-level     Command output level.
-                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
-                   'notice, 'info', 'debug', or a number greater than 0.
+  --info-level     Command output level. 
+                   The specific level can be one of 'silent', 'fatal', 'error', 'verbose',
+                   or a number greater than 0.
 
                    You can use ${CMD} config to get or set it as the global value. 
-                     ${CMD} config --write --key info.level --val debug
-                     ${CMD} config --read --key info.level
+                      ${CMD} config --write --key info.level --val debug
+                      ${CMD} config --read --key info.level
 
-                     Use '${CMD} config --help' to see more information.
+                   Use '${CMD} config --help' to see more information.
                   
 
   Other options
@@ -1534,15 +1464,15 @@ cat <<EOF
 
   --list     show default policy to specific filter table
 
-  --info-level     Command output level.
-                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
-                   'notice, 'info', 'debug', or a number greater than 0.
+  --info-level     Command output level. 
+                   The specific level can be one of 'silent', 'fatal', 'error', 'verbose',
+                   or a number greater than 0.
 
                    You can use ${CMD} config to get or set it as the global value. 
-                     ${CMD} config --write --key info.level --val debug
-                     ${CMD} config --read --key info.level
+                      ${CMD} config --write --key info.level --val debug
+                      ${CMD} config --read --key info.level
 
-                     Use '${CMD} config --help' to see more information.
+                   Use '${CMD} config --help' to see more information.
 
 
   -h|--help     show this help information
@@ -1573,14 +1503,14 @@ function usage_rule() {
   --rule           Indicate a rule. 
 
   --info-level     Command output level. 
-                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
-                   'notice, 'info', 'debug', or a number greater than 0.
+                   The specific level can be one of 'silent', 'fatal', 'error', 'verbose',
+                   or a number greater than 0.
 
                    You can use ${CMD} config to get or set it as the global value. 
-                     ${CMD} config --write --key info.level --val debug
-                     ${CMD} config --read --key info.level
+                      ${CMD} config --write --key info.level --val debug
+                      ${CMD} config --read --key info.level
 
-                     Use '${CMD} config --help' to see more information.
+                   Use '${CMD} config --help' to see more information.
                   
 
   Other options
@@ -1645,14 +1575,14 @@ function usage_filter()
                        The rule-limit is the same format as `--limt` string. Use '-' to re-use the previous --limit string.
 
   --info-level         Command output level. 
-                       The specific level can be one of 'silent', 'fatal', 'error', 'warning',
-                       'notice, 'info', 'debug', or a number greater than 0.
+                       The specific level can be one of 'silent', 'fatal', 'error', 'verbose',
+                       or a number greater than 0.
 
                        You can use ${CMD} config to get or set it as the global value. 
-                         ${CMD} config --write --key info.level --val debug
-                         ${CMD} config --read --key info.level
+                          ${CMD} config --write --key info.level --val debug
+                          ${CMD} config --read --key info.level
 
-                         Use '${CMD} config --help' to see more information.
+                       Use '${CMD} config --help' to see more information.
 
   --help|-h            Show this help information
 
@@ -1684,15 +1614,15 @@ cat <<EOF
 
   --log         Record log on forward request
 
-  --info-level     Command output level. 
-                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
-                   'notice, 'info', 'debug', or a number greater than 0.
+  --info-level  Command output level. 
+                The specific level can be one of 'silent', 'fatal', 'error', 'verbose',
+                or a number greater than 0.
 
-                   You can use ${CMD} config to get or set it as the global value. 
-                     ${CMD} config --write --key info.level --val debug
-                     ${CMD} config --read --key info.level
+                You can use ${CMD} config to get or set it as the global value. 
+                  ${CMD} config --write --key info.level --val debug
+                  ${CMD} config --read --key info.level
 
-                     Use '${CMD} config --help' to see more information.
+                Use '${CMD} config --help' to see more information.
 
   Other options
   Use '${CMD} --help' show all help information
@@ -1758,8 +1688,8 @@ function usage_wall()
                    
 
   --info-level     Command output level. 
-                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
-                   'notice, 'info', 'debug', or a number greater than 0.
+                   The specific level can be one of 'silent', 'fatal', 'error', 'verbose',
+                    or a number greater than 0.
 
                    You can use ${CMD} config to get or set it as the global value. 
                      ${CMD} config --write --key info.level --val debug
@@ -1833,8 +1763,8 @@ function usage_config() {
   --val        value of the key-value config item.
 
   --info-level     Command output level. 
-                   The specific level can be one of 'silent', 'fatal', 'error', 'warning',
-                   'notice, 'info', 'debug', or a number greater than 0.
+                   The specific level can be one of 'silent', 'fatal', 'error', 'verbose',
+                    or a number greater than 0.
 
                    You can use ${CMD} config to get or set it as the global value. 
                      ${CMD} config --write --key info.level --val debug
@@ -1964,9 +1894,11 @@ function iptables_config()
       fi
 
       if has_cfg_haskey --file "${config_file}" --key "${key}"; then
+        echo_verbose "config remove(key=${key} domain=${domain}) on file:${config_file}"
         delete_cfg_key --file "${config_file}" --key "${key}"
       fi
 
+      echo_verbose "config write(key=${key} val=${val} domain=${domain}) on file:${config_file}"
       write_cfg_key --file "${config_file}" --key "${key}" --val "${val}"
     elif [[ "${option}" == 'remove' ]]; then
 
@@ -1975,6 +1907,7 @@ function iptables_config()
       fi
 
       if [ -w "${config_file}" ]; then
+        echo_verbose "config remove(key=${key} domain=${domain}) on file:${config_file}"
         delete_cfg_key --file "${config_file}" --key "${key}"
       fi
 
@@ -2027,7 +1960,7 @@ function iptables_start()
 
     local system=$(linux_type)
     if [[ ${system} == "centos" || ${system} == "debian" ]]; then
-      echo_info 'Start iptables service...'
+      echo_verbose 'Start iptables service...'
       echo_cmd "start iptables.service"
       echo_cmd "enable iptables.service"
     elif [[ ${system} == "ubuntu" ]]; then
@@ -2105,10 +2038,10 @@ function iptables_save()
 
     local system=$(linux_type)
     if [[ ${system} == "centos" || ${system} == "debian" ]]; then
-      echo_info 'Save changes...'
+      echo_verbose 'Save changes...'
       echo_cmd "service iptables save"
 
-      echo_info 'Restart iptables services...'
+      echo_verbose 'Restart iptables services...'
       echo_cmd "service iptables stop"
       echo_cmd "service iptables start"
     elif [[ ${system} == "ubuntu" ]]; then
@@ -2129,14 +2062,14 @@ function iptables_save()
       local script_file_v6="/etc/network/if-pre-up.d/${FILENAME_NAT6}"
 
       # Create iptables rule file ...
-      echo_info "Create iptables rule file ..."
+      echo_verbose "Create iptables rule file ..."
       echo_cmd "${IPTABLES_SAVE} --file ${RULE_FILE}"
       echo_cmd "${IP6TABLES_SAVE} --file ${RULE6_FILE}"
       
       # Create launch script ...
-      echo_info "Create launch script ..."
-      echo -e "#!/bin/bash\n${IPTABLES_RESTORE} < ${RULE_FILE}" | tee ${script_file_v4} | echo_debug
-      echo -e "#!/bin/bash\n${IP6TABLES_RESTORE} < ${RULE6_FILE}" | tee ${script_file_v6} | echo_debug
+      echo_verbose "Create launch script ..."
+      echo -e "#!/bin/bash\n${IPTABLES_RESTORE} < ${RULE_FILE}" | tee ${script_file_v4} | echo_verbose
+      echo -e "#!/bin/bash\n${IP6TABLES_RESTORE} < ${RULE6_FILE}" | tee ${script_file_v6} | echo_verbose
       
     else
       :
@@ -2196,8 +2129,6 @@ function iptables_clear()
     if [ -n "${info_level}" ]; then
       set_info_level "${info_level}"
     fi
-
-    echo_info 'Clear all rules...'
 
     echo_cmd "${IPTABLES} -F"
     echo_cmd "${IPTABLES} -X"
@@ -2314,8 +2245,6 @@ function iptables_default()
       if [ -z ${option} ]; then
         echo_fatal 'iptables default need at least one params [DROP , ACCEPT]'
       fi
-
-      echo_info 'Set default policy...'
 
       if ${opt_input}; then
         echo_cmd "${IPTABLES} -P INPUT ${option}"
@@ -2898,7 +2827,7 @@ function iptables_filter()
         echo_fatal 'iptables filter need at least one params [DROP , ACCEPT]'
       fi
 
-      echo_info 'Add filter rule...'
+      echo_verbose 'Add filter rule...'
       iptables_wrapper "${option}" ${additional}
     fi
   fi
@@ -2948,6 +2877,7 @@ function iptables_handle_protocol()
   if [ -n "${protocol_name}" ] && [ -n "${type}" ]; then
     local handle_func=$(search_handler_info "${protocol_name}" "${type}")
     if [ -n "${handle_func}" ]; then
+      echo_verbose "Use handler ${handle_func}(protocol=${hook_protocol_name} type=${type} option=${option})"
       ${handle_func} ${option} --type ${type} ${additional}
       return $?
     fi
@@ -3466,6 +3396,8 @@ function iptables_wall()
             local in_params=''
             local out_params=''
 
+            echo_verbose "Use common handler ${type}(protocol=${hook_protocol_name} option=${option})"
+
             # interface
             if [[ -n "${inter_in_list}" ]] && [[ "${inter_in_list}" != '*' ]]; then
               in_params="${in_params} --interface-in ${inter_in_list}"
@@ -3494,7 +3426,7 @@ function iptables_wall()
                 out_params="${out_params} --port-from ${port}"
               fi
 
-              echo_info 'Add server rule...'
+              echo_verbose 'Add server rule...'
               iptables_wrapper ${option} --rule ${rule_in} ${in_params} ${protocol_params} ${limit_params} --state NEW,ESTABLISHED ${log_params} ${additional}
               iptables_wrapper ${option} --rule ${rule_out} ${out_params} ${protocol_params} ${limit_params} --state ESTABLISHED ${log_params} ${additional}
 
@@ -3510,7 +3442,7 @@ function iptables_wall()
                 out_params="${out_params} --port-to ${port}"
               fi
 
-              echo_info 'Add client rule...'
+              echo_verbose 'Add client rule...'
               iptables_wrapper ${option} --rule ${rule_out} ${out_params} ${protocol_params} ${limit_params} --state NEW,ESTABLISHED ${log_params} ${additional}
               iptables_wrapper ${option} --rule ${rule_in} ${in_params} ${protocol_params} ${limit_params} --state ESTABLISHED ${log_params} ${additional}
 
@@ -3526,14 +3458,14 @@ function iptables_wall()
                 in_params="${in_params} --port-to ${port}"
               fi
 
-              echo_info 'Add incoming rule...'
+              echo_verbose 'Add incoming rule...'
               iptables_wrapper "${option}" --rule ${rule_in} ${in_params} ${protocol_params} ${limit_params} ${log_params} ${additional}
             elif [[ ${type} == 'outgoing' ]]; then
               if [ -n "${port}" ]; then
                 out_params="${out_params} --port-from ${port} --port-to ${port}"
               fi
 
-              echo_info 'Add outgoing rule...'
+              echo_verbose 'Add outgoing rule...'
               iptables_wrapper "${option}" --rule ${rule_out} ${out_params} ${protocol_params} ${limit_params} ${log_params} ${additional}
 
             fi # end of 'if [[ "${type}" =='
@@ -3718,12 +3650,12 @@ function iptables_nat()
       fi
       
       # Add forwarding log
-      echo_info 'Add forwarding log...'
+      echo_verbose 'Add forwarding log...'
       echo_cmd "${IPTABLES} -A FORWARD -o ${to_inter} -i ${from_inter} -m conntrack --ctstate NEW -j LOG --log-prefix ${log_prefix} --log-level 4"
     fi
 
     # Add forwarding rule
-    echo_info 'Add forwarding rule...'
+    echo_verbose 'Add forwarding rule...'
     echo_cmd "${IPTABLES} -A FORWARD -o ${to_inter} -i ${from_inter} -m conntrack --ctstate NEW -j ACCEPT"
     # 允许已经建立链接的网络包转发
     #sudo iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
@@ -3732,7 +3664,7 @@ function iptables_nat()
 
     # 设置SNAT
     # add SNAT rule
-    echo_info 'add SNAT rule...'
+    echo_verbose 'add SNAT rule...'
     #iptables -t nat -A POSTROUTING -s 192.168.56.0/24 -j SNAT --to-source 10.0.2.15
     echo_cmd "${IPTABLES} -t nat -A POSTROUTING -o ${to_inter} -j MASQUERADE" # 这个记得之前应该好使啊????!!!!
 
@@ -3844,7 +3776,7 @@ function iptables_rule()
         echo_fatal "Must indicate rule name with --rule <name>"
       fi
 
-      echo_info "Create new rule :'${rule}'..."
+      echo_verbose "Create new rule :'${rule}'"
       echo_cmd "${IPTABLES} -N ${rule}"
 
       return $?
@@ -4190,6 +4122,7 @@ function handle_package_server()
 
 
   if strcontains "${option}" 'Drop Disable Block' --ignorecase; then
+    echo_verbose 'Add bad-package rule...'
     iptables_wrapper ${option} --proto ALL ${rule_in_params} ${in_params} --state INVALID ${log_params} ${additional}
     iptables_wrapper RETURN --proto ALL ${rule_in_params} ${in_params}
     if [ -n "${rule}" ]; then
@@ -4383,6 +4316,7 @@ function handle_synflood_server()
   fi
 
   if strcontains "${option}" 'Drop Disable Block' --ignorecase; then
+    echo_verbose 'Add syn-flood rule...'
     iptables_wrapper RETURN --proto tcp --syn ${rule_in_params} ${in_params} --limit limit-upto:syn_flood:200/s:3:srcip:::300000
     iptables_wrapper LOG ${log_params} ${rule_in_params} ${in_params}
     iptables_wrapper DROP ${rule_in_params} ${in_params}
@@ -4597,6 +4531,7 @@ function handle_stealscan_server()
     # NEW 状态的包会被丢弃
     #
 
+    echo_verbose 'Add steal-scan rule...'
     iptables_wrapper DROP --proto tcp ! --syn ${rule_in_params} ${in_params} --state NEW ${log_params} ${additional}
     iptables_wrapper DROP --proto tcp --proto-flag ALL NONE ${rule_in_params} ${in_params} ${log_params} ${additional}
     iptables_wrapper DROP --proto tcp --proto-flag ALL ALL ${rule_in_params} ${in_params} ${log_params} ${additional}
@@ -4802,6 +4737,7 @@ function handle_broadcast_server()
     ###########################################################
     # 发往所有主机（广播地址、组播地址）的数据包
     ###########################################################
+    echo_verbose 'Add broadcast package rule...'
     iptables_wrapper ${option} --ip-to 192.168.1.255 ${rule_in_params} ${in_params} ${log_params} ${additional}
     iptables_wrapper ${option} --ip-to 255.255.255.255 ${rule_in_params} ${in_params} ${log_params} ${additional}
     iptables_wrapper ${option} --ip-to 224.0.0.1 ${rule_in_params} ${in_params} ${log_params} ${additional}
@@ -4995,7 +4931,7 @@ function handle_icmp_server_and_client()
   fi
 
 
-
+  echo_verbose 'Add icmp rule...'
   if [[ "${type}" == "server" ]]; then
     ##########################################
     # ICMP 包规则
@@ -5258,10 +5194,9 @@ function handle_ssh_server()
   fi
 
 
-
+  echo_verbose 'Add ssh rule...'
   if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
 
-    echo_info "Add filter to ACCEPT package on SSH server with rule:${rule}..."
     #iptables_wrapper --proto tcp --syn ${rule_params} ${in_params} --limit recent-set:ssh_attack --state NEW,ESTABLISHED 
     #iptables_wrapper REJECT-WITH tcp-reset --proto tcp --syn ${rule_params} ${in_params} --limit recent-check:ssh_attack:60:5 --state NEW,ESTABLISHED ${additional}
 
@@ -5284,7 +5219,6 @@ function handle_ssh_server()
     ###########################################################
     # Same as ${CMD} service DROP --proto tcp --port 22
     ###########################################################
-    echo_info "Add filter to DROP package on SSH server with rule:${rule}..."
     iptables_wrapper "${option}" --proto tcp ${rule_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
     iptables_wrapper "${option}" --proto tcp ${rule_out_params} ${out_params} --state ESTABLISHED ${additional}
 
@@ -5479,6 +5413,7 @@ function handle_web_server()
   fi
 
 
+  echo_verbose "Add web rule on port ${port}..."
   if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
 
     ###########################################################
@@ -5693,6 +5628,7 @@ function handle_ftp_server_and_client()
   fi
 
 
+  echo_verbose 'Add FTP rule...'
   if [[ ${type} == "server" ]]; then
       if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
 
