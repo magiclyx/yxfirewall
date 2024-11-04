@@ -655,6 +655,23 @@ function search_handler_info()
 # Logger
 ####################################################################################################
 
+function valid_info_level()
+{
+  local info_level=$1
+
+  if [ -z "${info_level}" ]; then
+    return 1
+  fi
+
+  if ! strcontains "${info_level}" 'silent fatal error verbose' --ignorecase; then
+    if ! yx_str_checkfmt '^([0-9])+$' "${info_level}"; then
+      return 1
+    fi
+  fi
+
+  return 0
+}
+
 function set_info_level()
 {
   local info_level=$1
@@ -5800,8 +5817,15 @@ fi
 # Read configuration
 info_level=$(iptables_config --read --key info.level)
 if [ -n "${info_level}" ]; then
-  set_info_level "${info_level}"
+  if valid_info_level "${info_level}"; then
+    set_info_level "${info_level}"
+  else
+    echo_err "Invalid info.level from global config:${info_level}"
+    iptables_config --remove --key info.level
+  fi
 fi
+
+
 
 # regist build-in handler
 regist_handler WALL-PKG pkg_handler
