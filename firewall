@@ -435,7 +435,7 @@ function ip_forward_v4()
   if [ -z ${option} ]; then
     echo_fatal 'iptables_default need at least one params [DROP , ACCEPT]'
   else
-    if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == '1' ]]; then
+    if strcontains "${option}" 'Enable Accept Allow 1' --ignorecase; then
       option='1'
     else
       option='0'
@@ -2228,10 +2228,10 @@ function iptables_default()
   local info_level=
 
   local option=$1
-  if [[ ${option} == 'enable' ]] || [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
+  if strcontains "${option}" 'Enable Accept Allow' --ignorecase; then
     option="ACCEPT"
     shift
-  elif [[ ${option} == 'disable' ]] || [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
+  elif strcontains "${option}" 'Disable Drop Block' --ignorecase; then
     option="DROP"
     shift
   else
@@ -2409,13 +2409,13 @@ function iptables_wrapper()
       option="ACCEPT"
     elif strcontains "${option}" 'Disable Drop Block' --ignorecase; then
       option="DROP"
-    elif [[ ${option} == 'return' ]] || [[ ${option} == 'Return' ]] || [[ ${option} == 'RETURN' ]]; then
+    elif strcontains "${option}" 'Return' --ignorecase; then
       option="RETURN"
-    elif [[ ${option} == 'log' ]] || [[ ${option} == 'Log' ]] || [[ ${option} == 'LOG' ]]; then
+    elif strcontains "${option}" 'Log' --ignorecase; then
       option="LOG"
-    elif [[ ${option} == 'reject' ]] || [[ ${option} == 'Reject' ]] || [[ ${option} == 'REJECT' ]]; then
+    elif strcontains "${option}" 'Reject' --ignorecase; then
       option="REJECT"
-    elif [[ ${option} == 'reject-with' ]] || [[ ${option} == 'Reject-with' ]] || [[ ${option} == 'REJECT-WITH' ]]; then
+    elif strcontains "${option}" 'Reject-with' --ignorecase; then
       option="REJECT"
       local reject_value=$1
       if ! [[ "${reject_value}" =~ ^-.*$ ]]; then
@@ -3007,7 +3007,7 @@ function iptables_wall()
     local option=$1
     if ! [[ "${option}" =~ ^-.*$ ]]; then
       shift
-      if [[ ${option} == 'reject-with' ]] || [[ ${option} == 'Reject-with' ]] || [[ ${option} == 'REJECT-WITH' ]]; then
+      if strcontains "${option}" 'Reject-with' --ignorecase; then
         option="REJECT"
         local reject_value=$1
         if ! [[ "${reject_value}" =~ ^-.*$ ]]; then
@@ -3775,16 +3775,16 @@ function iptables_rule()
 
 
   local option=$1
-  if [[ ${option} == 'create' ]] || [[ ${option} == 'Create' ]] || [[ ${option} == 'CREATE' ]] ; then
+  if strcontains "${option}" 'Create' --ignorecase; then
     option="CREATE"
     shift
-  elif [[ ${option} == 'exist' ]] || [[ ${option} == 'Exist' ]] || [[ ${option} == 'EXIST' ]] ; then
+  elif strcontains "${option}" 'Exist' --ignorecase; then
     option="EXIST"
     shift
-  elif [[ ${option} == 'remove' ]] || [[ ${option} == 'Remove' ]] || [[ ${option} == 'REMOVE' ]] ; then
+  elif strcontains "${option}" 'Remove' --ignorecase; then
     option="REMOVE"
     shift
-  elif [[ ${option} == 'list' ]] || [[ ${option} == 'List' ]] || [[ ${option} == 'LIST' ]] ; then
+  elif strcontains "${option}" 'List' --ignorecase; then
     option="LIST"
     shift
   else
@@ -5891,31 +5891,31 @@ if [[ -z ${sub_cmd} ]]; then
 fi
 
 
-if [[ ${sub_cmd} == "start" ]]; then
+if strcontains "${sub_cmd}" 'start' --ignorecase; then
   iptables_start $@
-elif [[ ${sub_cmd} == "clear" ]]; then
+elif strcontains "${sub_cmd}" 'clear' --ignorecase; then
   iptables_clear $@
-elif [[ ${sub_cmd} == "save" ]]; then
+elif strcontains "${sub_cmd}" 'save' --ignorecase; then
   iptables_save $@
-elif [[ ${sub_cmd} == "default" ]]; then
+elif strcontains "${sub_cmd}" 'default' --ignorecase; then
   iptables_default $@
-elif [[ ${sub_cmd} == "rule" ]]; then
+elif strcontains "${sub_cmd}" 'rule' --ignorecase; then
   iptables_rule $@
-elif [[ ${sub_cmd} == "filter" ]]; then
+elif strcontains "${sub_cmd}" 'filter' --ignorecase; then
   iptables_filter $@
-elif [[ ${sub_cmd} == "nat" ]]; then
+elif strcontains "${sub_cmd}" 'nat' --ignorecase; then
   iptables_nat $@
-elif [[ ${sub_cmd} == "incoming" ]] || [[ ${sub_cmd} == "Incoming" ]] || [[ ${sub_cmd} == "INCOMING" ]]; then
+elif strcontains "${sub_cmd}" 'incoming' --ignorecase; then
   iptables_wall incoming "$@"
-elif [[ ${sub_cmd} == "outgoing" ]] || [[ ${sub_cmd} == "Outgoing" ]] || [[ ${sub_cmd} == "OUTGOING" ]]; then
+elif strcontains "${sub_cmd}" 'outgoing' --ignorecase; then
   iptables_wall outgoing "$@"
-elif [[ ${sub_cmd} == "server" ]] || [[ ${sub_cmd} == "Server" ]] || [[ ${sub_cmd} == "SERVER" ]]; then
+elif strcontains "${sub_cmd}" 'server' --ignorecase; then
   iptables_wall server "$@"
-elif [[ ${sub_cmd} == "client" ]] || [[ ${sub_cmd} == "Client" ]] || [[ ${sub_cmd} == "CLIENT" ]]; then
+elif strcontains "${sub_cmd}" 'client' --ignorecase; then
   iptables_wall client "$@"
-elif [[ ${sub_cmd} == "loopback" ]]; then
+elif strcontains "${sub_cmd}" 'loopback' --ignorecase; then
   iptables_loopback $@
-elif [[ ${sub_cmd} == "config" ]]; then
+elif strcontains "${sub_cmd}" 'config' --ignorecase; then
   iptables_config $@
 elif [[ ${sub_cmd} == "--help" ]] || [[ ${sub_cmd} == '-h' ]]; then
   usage
