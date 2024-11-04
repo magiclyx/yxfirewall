@@ -1728,11 +1728,13 @@ function usage_wall()
 
   --rule           Name of the current rule. If indicate a name, command will create a custom chain on table.
 
-  --interface      Name of an interface via which a package was received.
+  --interface      Name of an interface via which a package was received. '*' means all interface.
   --not-interface  Same as '--interface' but sense is inverted.
 
   --ip             Indicate ip-address from incomming connection. (support ip format: 192.168.0.1 | 192.168.0.1/24 | 192.168.0.1-192.168.0.99)
   --not-ip         Same as '--ip' but sense is inverted.
+
+  --force-ip       Convert all interface to ip/mask.
 
   --net            Same as --ip or --intreface. the command will test what the prameters is.
 
@@ -3276,7 +3278,7 @@ function iptables_wall()
 
               if ${force_ip}; then
                 
-                # convert ip-address to ip/mask
+                # convert interface to ip/mask
                 local ip_addr=$(ip_from_inter "${inter}" )
                 if [ -n "${ip_addr}" ]; then
 
