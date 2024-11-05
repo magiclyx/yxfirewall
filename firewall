@@ -1808,6 +1808,42 @@ function usage_config() {
 EOF
 }
 
+function usage_list()
+{
+   cat <<EOF
+  usage: ${CMD} list [--chain name] [--numeric|--verbose|--line-num|--chain-io|--reference|] 
+  List all rules in the select chain. If no chain is selected, all chains are list.
+
+  usage: ${CMD} list <--help|-h> 
+  For this help information.
+
+
+  The following options are allowed:
+  --chain      indicate a name of the chain. if not give a chain name, command will display all chains information.
+
+  --numeric    Numeric output. IP addresses and port numbers will be printed in numeric format.
+  --verbose    Verbose output. This option makes the list command show the interface name, the rule options (if any), and the TOS masks.
+  --line-num   When listing rules, add line numbers to the beginning of each rule.
+
+  --chain-io   When indicate a chain 'name', --chain-io display both 'name_in' and 'name_out' as chain name at same time
+  --reference  When indicate a chain 'name', --reference display all reference information at the end of chain.
+
+
+  --info-level     Command output level. 
+                   The specific level can be one of 'silent', 'fatal', 'error', 'verbose',
+                    or a number greater than 0.
+
+                   You can use ${CMD} config to get or set it as the global value. 
+                     ${CMD} config --write --key info.level --val debug
+                     ${CMD} config --read --key info.level
+
+                     Use '${CMD} config --help' to see more information.
+
+  Other options
+  Use '${CMD} --help' show all help information 
+EOF
+}
+
 
 ####################################################################################################
 # iptables
@@ -4160,7 +4196,170 @@ function iptables_loopback()
 
 }
 
+function iptables_list()
+{
+  local chain=
+  local numberic=false
+  local verbose=false
+  local line_num=false
+  local reference=false
+  local chain_io=false
 
+  local show_help=false
+  local additional=
+
+  while [ $# -gt 0 ]; do
+		case $1 in
+
+      --chain )
+        shift
+        chain=$1
+      ;;
+
+      --numeric )
+        numberic=true
+      ;;
+
+      --verbose )
+        verbose=true
+      ;;
+
+      --line-num )
+        line_num=true
+      ;;
+
+      --chain-io )
+				chain_io=true
+			;;
+
+      --reference )
+				reference=true
+			;;
+
+      --info-level )
+        info_level=$1
+      ;;
+
+      --help )
+        show_help=true
+      ;;
+
+			*)
+        additional="${additional} $1"
+      ;;
+		esac
+		shift
+	done
+
+
+  if ${show_help}; then
+    usage_list
+    exit 0
+  else
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
+    local params=''
+    if ${numberic}; then
+      params="${params} --numeric"
+    fi
+    if ${verbose}; then
+      params="${params} --verbose"
+    fi
+
+    if ${line_num}; then
+      params="${params} --line-numbers"
+    fi
+
+    # use --list name
+    # list 必须放在最后, 因为后面要拼 chain name
+    params="${params} --list"
+
+    # if display specific chain's info
+    if [ -n "${chain}" ]; then
+
+      # if should convert chain 'name' to 'name_in' and 'name_out'
+      if ${chain_io}; then
+
+        # display the chain
+        if iptables_chain exist --name "${chain}_in"; then
+          echo_cmd "${IPTABLES} ${params} ${chain}_in"
+        fi
+        if iptables_chain exist --name "${chain}_out"; then
+          echo ""
+          echo_cmd "${IPTABLES} ${params} ${chain}_out"
+        fi
+
+        # if need to display reference info
+        if ${reference}; then
+
+          # walk through all chain
+          local -A search_map
+          for chain_name in $(iptables_chain list); do
+            
+            # ignore the chain
+            if [[ ${chain_name} == ${chain} ]]; then
+              continue
+            fi
+
+            local has_ref=false
+            # test whether chain_in exist
+            if ${IPTABLES} -L "${chain_name}" | tail -n +3 | awk '{print $1}' | grep -q "${chain}_in"; then
+              has_ref=true;
+            fi
+            # test whether chain_out exist
+            if ${IPTABLES} -L "${chain_name}" | tail -n +3 | awk '{print $1}' | grep -q "${chain}_out"; then
+              has_ref=true;
+            fi
+
+            # display
+            if ${has_ref}; then
+              echo ""
+              ${IPTABLES} ${params} ${chain_name} | head -n 2 # header
+              ${IPTABLES} ${params} ${chain_name} | tail -n +3 | grep "${chain}_in"  # in
+              ${IPTABLES} ${params} ${chain_name} | tail -n +3 | grep "${chain}_out" #out
+            fi
+
+          done # End of (for chain_name in $(iptables_chain list); do)
+
+
+        fi
+
+      else # if ${chain_io}; then
+
+        # display the chain
+        echo_cmd "${IPTABLES} ${params} ${chain}"
+
+        # display all reference chain and rule
+        for chain_name in $(iptables_chain list); do
+
+          # ignore the chain
+          if [[ ${chain_name} == ${chain} ]]; then
+            continue
+          fi
+
+          # display all reference chain and rule
+          if ${reference}; then
+            if ${IPTABLES} -L "${chain_name}" | tail -n +3 | awk '{print $1}' | grep -Eq "^${chain}\W*$"; then
+              echo ""
+              ${IPTABLES} ${params} ${chain_name} | head -n 2
+              ${IPTABLES} ${params} ${chain_name} | tail -n +3 | grep "${chain}"
+            fi
+          fi
+
+        done
+
+      fi # end of(if ${chain_io}; then)
+
+    else
+      # display all info
+      ${IPTABLES} ${params}
+    fi
+  fi
+
+}
 
 ####################################################################################################
 # build-in handler
@@ -6081,6 +6280,8 @@ elif strcontains "${sub_cmd}" 'server' --ignorecase; then
   iptables_wall server "$@"
 elif strcontains "${sub_cmd}" 'client' --ignorecase; then
   iptables_wall client "$@"
+elif strcontains "${sub_cmd}" 'list' --ignorecase; then
+  iptables_list "$@"
 elif strcontains "${sub_cmd}" 'loopback' --ignorecase; then
   iptables_loopback $@
 elif strcontains "${sub_cmd}" 'config' --ignorecase; then
