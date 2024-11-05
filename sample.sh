@@ -104,6 +104,21 @@ function echo_noti()
   (>&1 echo "${blue}${str}${reset}")
 }
 
+function echo_info()
+{
+  local str=
+	if (( $# == 0 )) ; then
+		read -r -t 5 -d $'\0' str
+#		num=`cat < /dev/stdin`
+	else
+		str="$*"
+	fi
+
+  local green=$(tput setaf 2);
+  local reset=$(tput sgr0);
+  (>&1 echo "${green}${str}${reset}")
+}
+
 ###########################################################
 # 设置调试日志级别为 Debug, 并保存之前的配置
 ###########################################################
@@ -111,7 +126,7 @@ if ${DEBUG}; then
     echo_noti "Change output level to 'DEBUG'..."
 
     info_level_buckup=$(sudo ./firewall config --read --key info.level)
-    sudo ./firewall config --write --key info.level --val debug
+    sudo ./firewall config --write --key info.level --val verbose 
 fi
 
 
@@ -121,17 +136,19 @@ fi
 echo_noti "Initialize..."
 
 sudo ./firewall start  # 启动服务
+echo_info "Clear all rule..."
 sudo ./firewall clear  # 清空所有规则
+echo_info "Set default policy..."
 sudo ./firewall default DROP --all  # 设置所有规则的默认行为是Drop
 
 
 ###########################################################
 # 放弃来自 $DENY_HOSTS 的访问
 ###########################################################
-echo_noti "Set deny hosts..."
 
 if [ "${DENY_HOSTS}" ]
 then
+  echo_noti "Set deny hosts..."
 	for host in "${DENY_HOSTS[@]}";
 	do
       sudo ./firewall incoming drop --net "${host}" --log firewall-denyhost:limit:1/s
@@ -145,13 +162,17 @@ fi
 echo_noti "Set Common guard rule..."
 
 # 攻击防护：broadcast
-sudo ./firewall Server Block --proto wall-broadcast --rule "FW_BROADCAST" --log firewall-broadcast:-
-# 攻击防护：syn flood
-sudo ./firewall Server Block --proto wall-synflood --rule "FW_SYNFLOOD" --log firewall-synflood:-
+echo_info "Block broadcast package..."
+sudo ./firewall Server Block --proto wall-broadcast --chain "FW_BROADCAST" --log firewall-broadcast:-
 # 攻击防护：bad package
-sudo ./firewall Server Block --proto wall-pkg --rule "FW_PKG" --log firewall-invalid-package:-
+echo_info "Block bad package..."
+sudo ./firewall Server Block --proto wall-pkg --chain "FW_PKG" --log firewall-invalid-package:-
+# 攻击防护：syn flood
+echo_info "Block syn-flood attack..."
+sudo ./firewall Server Block --proto wall-synflood --chain "FW_SYNFLOOD" --log firewall-synflood:-
 # 攻击防护：stealth scan
-sudo ./firewall Server Block --proto wall-scan --rule "FW_STEALTHSCAN" --log firewall-stealthscan:-
+echo_info "Block steal-scan..."
+sudo ./firewall Server Block --proto wall-scan --chain "FW_STEALTHSCAN" --log firewall-stealthscan:-
 
 
 ###########################################################
@@ -181,7 +202,7 @@ then
     if [[ ${net} != '*' ]]; then
       ip_params="--net ${net}"
     fi
-      sudo ./firewall Server ACCEPT --proto icmp --rule "FW_ICMP" ${ip_params} --log firewall-icmp:-
+      sudo ./firewall Server ACCEPT --proto icmp --chain "FW_ICMP" ${ip_params} --log firewall-icmp:-
   done
 fi
 
@@ -198,7 +219,7 @@ then
     if [[ ${net} != '*' ]]; then
       ip_params="--net ${net}"
     fi
-      sudo ./firewall Server ACCEPT --proto ssh --rule "FW_SSH" ${ip_params} --log firewall-ssh:-
+      sudo ./firewall Server ACCEPT --proto ssh --chain "FW_SSH" ${ip_params} --log firewall-ssh:-
   done
 fi
 
@@ -213,9 +234,9 @@ then
     if [[ ${net} != '*' ]]; then
       ip_params="--net ${net}"
     fi
-      sudo ./firewall Server ACCEPT --proto https --rule "FW_HTTPS" ${ip_params} --log firewall-https:-
+      sudo ./firewall Server ACCEPT --proto https --chain "FW_HTTPS" ${ip_params} --log firewall-https:-
       if ! ${HTTPS_ONLY}; then
-          sudo ./firewall Server ACCEPT --proto http --rule "FW_HTTP" ${ip_params} --log firewall-http:-
+          sudo ./firewall Server ACCEPT --proto http --chain "FW_HTTP" ${ip_params} --log firewall-http:-
       fi
   done
 fi
@@ -237,7 +258,7 @@ then
     if [ -n ${FTP_PORTS_RANGE} ]; then
       port_params="--port ${FTP_PORTS_RANGE}"
     fi
-      sudo ./firewall Server ACCEPT --proto ftp ${port_params} --rule "FTP_SRV" ${ip_params}
+      sudo ./firewall Server ACCEPT --proto ftp ${port_params} --chain "FTP_SRV" ${ip_params}
   done
 fi
 
@@ -248,7 +269,7 @@ fi
 
 if [ -n "${SNAT_WAN}" ]  && [ "${SNAT_LAN_LIST}" ]
 then
-  echo_noti "set SNAT..."
+  echo_noti "Set SNAT..."
   for lan in "${SNAT_LAN_LIST[@]}"
   do
     sudo ./firewall nat --snat --from-inter "${lan}" --to-inter "${SNAT_WAN}" --log firewall-forward:
@@ -312,6 +333,14 @@ sudo ./firewall incoming DROP --log firewall-drop
 
 
 ###########################################################
+# 保存 Iptables
+###########################################################
+#:~TODO 去除 save 命令 三个log相关参数
+echo_noti "Save changes..."
+sudo ./firewall save --log-input firewall-input-drop:
+
+
+###########################################################
 # 恢复之前的配置
 ###########################################################
 echo_noti "Reset Info.level..."
@@ -321,20 +350,13 @@ else
     sudo ./firewall config --remove --key info.level
 fi
 
-###########################################################
-# 保存 Iptables
-###########################################################
-#:~TODO 去除 save 命令 三个log相关参数
-echo_noti "Save changes..."
-sudo ./firewall save --log-input firewall-input-drop:
-
 
 ###########################################################
 # 显示配置信息
 ###########################################################
 echo -ne "\n\n"
 echo "####################################################################################################"
-sudo ./firewall filter --list
+sudo ./firewall list
 echo -ne "\n\n"
-sudo ./firewall nat --list
+sudo ./firewall list --table nat
 
