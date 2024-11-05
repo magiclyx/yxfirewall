@@ -1555,6 +1555,8 @@ function usage_filter()
   The following options are allowed:
 
   --list               List filter rule information.
+  --chain-io           When use --list and indicate a chain 'name' by --chain, -chain-io will display 'name_in' and 'name_out'.
+  --reference          When use --list and indicate a chain 'name' by --chain, --reference will display all reference information of the chain.
   
   --chain              If indicate a name, command will create custom chain with name_in and name_out.
 
@@ -2561,7 +2563,7 @@ function iptables_wrapper()
         chain_params="${chain}"
       fi
 
-      echo_cmd "iptables -nvL ${chain_params}"
+      echo_cmd "${IPTABLES} -nvL ${chain_params}"
       exit 0
     else
 
@@ -2796,12 +2798,15 @@ function iptables_filter()
 {
 
   local info_level=
-  local show=false
 
   local show_help=false
 
   local chain=
   local additional=
+
+  local show=false
+  local chain_io=false
+  local show_ref=false
 
   local option=$1
   if ! [[ "${option}" =~ ^-.*$ ]]; then
@@ -2833,6 +2838,15 @@ function iptables_filter()
         chain=$1
       ;;
 
+      --chain-io )
+				chain_io=true
+			;;
+
+      --reference )
+        shift
+				show_ref=true
+			;;
+
       --info-level )
         shift
         info_level=$1
@@ -2859,13 +2873,79 @@ function iptables_filter()
       set_info_level "${info_level}"
     fi
 
-    local chain_params=
-    if [ -n "${chain}" ]; then
-      chain_params="--chain ${chain}"
-    fi
-
     if ${show}; then
-      iptables_wrapper --list ${chain_params}
+
+      if [ -n "${chain}" ]; then
+
+        if ${chain_io}; then
+
+          # display the chain
+          if iptables_chain exist --name "${chain}_in"; then
+            echo_cmd "${IPTABLES} -nvL ${chain}_in"
+          fi
+          if iptables_chain exist --name "${chain}_out"; then
+            echo ""
+            echo_cmd "${IPTABLES} -nvL ${chain}_out"
+          fi
+
+          # display all reference chain and rule
+          if ${show_ref}; then
+
+            local -A search_map
+            for chain_name in $(iptables_chain list); do
+
+              local has_ref=false
+              if ${IPTABLES} -L "${chain_name}" | tail -n +3 | awk '{print $1}' | grep -q "${chain}_in"; then
+                has_ref=true;
+              fi
+              if ${IPTABLES} -L "${chain_name}" | tail -n +3 | awk '{print $1}' | grep -q "${chain}_out"; then
+                has_ref=true;
+              fi
+
+              if ${has_ref}; then
+                echo ""
+                ${IPTABLES} -nvL ${chain_name} | head -n 2
+                ${IPTABLES} -nvL ${chain_name} | tail -n +3 | grep "${chain}_in"
+                ${IPTABLES} -nvL ${chain_name} | tail -n +3 | grep "${chain}_out"
+              fi
+
+            done # End of (for chain_name in $(iptables_chain list); do)
+
+
+          fi
+
+        else # if ${chain_io}; then
+
+          # display the chain
+          echo_cmd "${IPTABLES} -nvL ${chain}"
+
+          # display all reference chain and rule
+          for chain_name in $(iptables_chain list); do
+
+            if [[ ${chain_name} == ${chain} ]]; then
+              continue
+            fi
+
+            # display all reference chain and rule
+            if ${show_ref}; then
+              if ${IPTABLES} -L "${chain_name}" | tail -n +3 | awk '{print $1}' | grep -Eq "^${chain}\W*$"; then
+                echo ""
+                ${IPTABLES} -nvL ${chain_name} | head -n 2
+                ${IPTABLES} -nvL ${chain_name} | tail -n +3 | grep "${chain}"
+              fi
+            fi
+
+          done
+
+        fi # end of(if ${chain_io}; then)
+
+        exit 0
+
+      else
+        iptables_wrapper --list
+      fi
+
+
       exit 0
     else
 
@@ -2873,8 +2953,13 @@ function iptables_filter()
         echo_fatal 'iptables filter need at least one params [DROP , ACCEPT]'
       fi
 
+      local chain_params=
+      if [ -n "${chain}" ]; then
+        chain_params="--chain ${chain}"
+      fi
+
       echo_verbose 'Add filter rule...'
-      iptables_wrapper "${option}" "${chain_params}" ${additional}
+      iptables_wrapper "${option}" ${chain_params} ${additional}
     fi
   fi
 
@@ -3191,12 +3276,12 @@ function iptables_wall()
 
     if ${show}; then
 
-      local chain_params=
       if [ -n "${chain}" ]; then
-        chain_params="--chain ${chain}"
+        iptables_wrapper --list --chain "${chain}"
+      else
+        iptables_wrapper --list
       fi
 
-      iptables_wrapper --list ${chain_params}
       exit 0
     else
 
@@ -3886,7 +3971,7 @@ function iptables_chain()
               if iptables_chain exist --name "${fix_chain_name}_in"; then
                 has_in=true
               fi
-              if iptables_chain exist --name "${fix_chain_name}_in"; then
+              if iptables_chain exist --name "${fix_chain_name}_out"; then
                 has_out=true
               fi
 
