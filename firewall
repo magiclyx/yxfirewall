@@ -1661,12 +1661,8 @@ function usage_wall()
   usage: ${CMD} Client <accept|drop|block|return|reject> [options]
   For 'New' connection on outgoing and 'Established/Relate' connection on incoming.
 
-  usage: ${CMD} --list [options]
-  List all rules on select chain.
-
 
   The following options are allowed:
-  --list           List all rules on select chain.
 
   --chain          If indicate a name, command will create custom chain with name_in and name_out.
 
@@ -2980,7 +2976,6 @@ function iptables_wall()
   local logstr=
 
   local info_level=
-  local show=false
 
   local additional=
   local show_help=false
@@ -3103,11 +3098,6 @@ function iptables_wall()
 				logstr=$1
 			;;
 
-      --list )
-        cursor=$1
-        show=true
-      ;;
-
       --info-level )
         cursor=$1
         shift
@@ -3210,344 +3200,333 @@ function iptables_wall()
       set_info_level "${info_level}"
     fi
 
-    if ${show}; then
 
-      if [ -n "${chain}" ]; then
-        iptables_wrapper --list --chain "${chain}"
+    if [ -z ${type} ]; then
+      echo_fatal "Type must not be nil. ${CMD} wall <type> <optional>. try '-h' or '--help' to show more information."
+    fi
+
+    # if [ -z "${option}" ]; then
+    #   echo_fatal "Optional must not be nil. ${CMD} wall <type> <optional>. try '-h' or '--help' to show more information."
+    # fi
+
+
+    # chain params
+    local chain_in=INPUT
+    local chain_out=OUTPUT
+    if [ -n "${chain}" ]; then
+      if strcontains "${chain}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
+        echo_fatal "Can not use chain with name '${chain}'. "
       else
-        iptables_wrapper --list
+        chain_in="${chain}"_in
+        chain_out="${chain}"_out
       fi
-
-      exit 0
-    else
-
-      if [ -z ${type} ]; then
-        echo_fatal "Type must not be nil. ${CMD} wall <type> <optional>. try '-h' or '--help' to show more information."
-      fi
-
-      # if [ -z "${option}" ]; then
-      #   echo_fatal "Optional must not be nil. ${CMD} wall <type> <optional>. try '-h' or '--help' to show more information."
-      # fi
+    fi
 
 
-      # chain params
-      local chain_in=INPUT
-      local chain_out=OUTPUT
-      if [ -n "${chain}" ]; then
-        if strcontains "${chain}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
-          echo_fatal "Can not use chain with name '${chain}'. "
+    local -a inter_list
+    local -a ip_list
+    # inter_list=(\*)
+    # ip_list=(\*)
+
+
+    function _wall_handle_inter()
+    {
+      local local_interface=$1
+
+      # Find all interface
+      if [[ ${local_interface} == '*' ]]; then
+
+        if which ip > /dev/null; then
+            inter_str=$(ip link show | awk -F': ' '/^[0-9]+: /{print $2}' | tr '[:space:]' ' ' | tr -s '[:space:]' | grep -o "[^ ]\+\( \+[^ ]\+\)*" )
         else
-          chain_in="${chain}"_in
-          chain_out="${chain}"_out
+            inter_str=$(ifconfig -a | grep -o '^[a-zA-Z0-9]*' | tr '[:space:]' ' ' | tr -s '[:space:]' | grep -o "[^ ]\+\( \+[^ ]\+\)*" )
         fi
-      fi
 
 
-      local -a inter_list
-      local -a ip_list
-      # inter_list=(\*)
-      # ip_list=(\*)
+        local tmp_inter_list=()
+        read -r -a tmp_inter_list <<< "${inter_str}"
+        for inter in "${tmp_inter_list[@]}"; do
 
+            # '*' not include local-address
+            if [[ "${inter}" =~ ^lo[0-9]*$ ]]; then
+              continue
+            fi
 
-      function _wall_handle_inter()
-      {
-        local local_interface=$1
+            # exclude '--not-interface' if it exist
+            if [[ -n "${not_interface}" ]]  &&  [[ "${inter}" == "${not_interface}" ]]; then
+              continue
+            fi
 
-        # Find all interface
-        if [[ ${local_interface} == '*' ]]; then
+            if ${force_ip}; then
+              
+              # convert interface to ip/mask
+              local ip_addr=$(ip_from_inter "${inter}" )
+              if [ -n "${ip_addr}" ]; then
 
-          if which ip > /dev/null; then
-              inter_str=$(ip link show | awk -F': ' '/^[0-9]+: /{print $2}' | tr '[:space:]' ' ' | tr -s '[:space:]' | grep -o "[^ ]\+\( \+[^ ]\+\)*" )
-          else
-              inter_str=$(ifconfig -a | grep -o '^[a-zA-Z0-9]*' | tr '[:space:]' ' ' | tr -s '[:space:]' | grep -o "[^ ]\+\( \+[^ ]\+\)*" )
-          fi
-
-
-          local tmp_inter_list=()
-          read -r -a tmp_inter_list <<< "${inter_str}"
-          for inter in "${tmp_inter_list[@]}"; do
-
-              # '*' not include local-address
-              if [[ "${inter}" =~ ^lo[0-9]*$ ]]; then
-                continue
-              fi
-
-              # exclude '--not-interface' if it exist
-              if [[ -n "${not_interface}" ]]  &&  [[ "${inter}" == "${not_interface}" ]]; then
-                continue
-              fi
-
-              if ${force_ip}; then
-                
-                # convert interface to ip/mask
-                local ip_addr=$(ip_from_inter "${inter}" )
-                if [ -n "${ip_addr}" ]; then
-
-                  # exclude '--ip' if it exist
-                  if [[ -n "${ip}" ]] && [[ "${ip}" == "${ip_addr}" ]]; then
-                    continue
-                  fi
-                  
-                  # exclude '--not-ip' if it exist
-                  if [[ -n "${not_ip}" ]] && [[ "${not_ip}" == "${ip_addr}" ]]; then
-                    continue
-                  fi
-
-                  ip_list=("${ip_list[@]}" "${ip_addr}");
+                # exclude '--ip' if it exist
+                if [[ -n "${ip}" ]] && [[ "${ip}" == "${ip_addr}" ]]; then
+                  continue
                 fi
-              else
-                inter_list=("${inter_list[@]}" "${inter}");
-              fi
-          done
-        else
+                
+                # exclude '--not-ip' if it exist
+                if [[ -n "${not_ip}" ]] && [[ "${not_ip}" == "${ip_addr}" ]]; then
+                  continue
+                fi
 
-          if ${force_ip}; then
-            # convert ip-address to ip/mask
-            local ip_addr=$(ip_from_inter "${local_interface}" )
-            if [ -n "${ip_addr}" ]; then
-
-              # exclude '--ip' if it exist
-              # exclude '--not-ip' if it exist
-              if [[ "${ip_addr}" != "${ip}" ]] && [[ "${ip_addr}" != "${not_ip}" ]]; then
                 ip_list=("${ip_list[@]}" "${ip_addr}");
               fi
-
+            else
+              inter_list=("${inter_list[@]}" "${inter}");
             fi
-          else
-            inter_list=("${inter_list[@]}" "${local_interface}");
+        done
+      else
+
+        if ${force_ip}; then
+          # convert ip-address to ip/mask
+          local ip_addr=$(ip_from_inter "${local_interface}" )
+          if [ -n "${ip_addr}" ]; then
+
+            # exclude '--ip' if it exist
+            # exclude '--not-ip' if it exist
+            if [[ "${ip_addr}" != "${ip}" ]] && [[ "${ip_addr}" != "${not_ip}" ]]; then
+              ip_list=("${ip_list[@]}" "${ip_addr}");
+            fi
+
           fi
-
-        fi
-      }
-
-      function _wall_handle_ip()
-      {
-        local local_ip=$1
-
-        if [ -n "${local_ip}" ]; then
-          ip_list=("${ip_list[*]}" "${local_ip}");
-        fi
-      }
-
-      _wall_handle_inter "${interface}"
-      _wall_handle_ip "${ip}"
-
-
-      if [[ -n ${net} ]]; then
-        if yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}(/[0-3]?[0-9])?$' "${net}"; then
-          _wall_handle_ip "${net}"
-        elif yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}-([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}$' "${net}"; then
-          _wall_handle_ip "${net}"
         else
-          _wall_handle_inter "${net}"
-        fi
-      fi
-
-
-      # Add * to empty list
-      inter_list=($(printf "%s\n" "${inter_list[@]}" | sort -u | tr '\n' ' '))
-      # inter_list=($(awk -v RS=' ' '!a[$1]++' <<< ${inter_list[@]}))
-      if [ ${#inter_list[@]} -eq 0 ]; then
-        inter_list=("${inter_list[@]}" \*);
-      fi
-
-      ip_list=($(printf "%s\n" "${ip_list[@]}" | sort -u | tr '\n' ' '))
-      # ip_list=($(awk -v RS=' ' '!a[$1]++' <<< ${ip_list[@]}))
-      if [ ${#ip_list[@]} -eq 0 ]; then
-        ip_list=("${ip_list[@]}" \*)
-      fi
-
-
-      # --protocol-name params for `iptables_handle_protocol` only
-      ####################
-      local hook_protocol_name=
-      if [ -n "${protocol}" ]; then
-        hook_protocol_name="--proto-name $(echo "${protocol}" | awk '{print $1}' | tr '[:upper:]' '[:lower:]' | grep -o "[^ ]\+\( \+[^ ]\+\)*")"
-      fi
-
-
-      # try tanslate the port number from protocol name.
-      # try get a real protocol name.
-      ####################
-      if [ -z "${port}" ] && [ -n "${protocol}" ]; then
-
-        #try get port number and low-level protocol name from rule config
-        if [ -z "${port}" ]; then
-          port=$(iptables_config "rule.${protocol}" --read --key port)
-          if [ -n "${port}" ]; then
-            protocol=$(iptables_config "rule.${protocol}" --read --key protocol)
-            if [ -z "${protocol}" ]; then
-              protocol='tcp'
-            fi
-          fi
+          inter_list=("${inter_list[@]}" "${local_interface}");
         fi
 
-        #try get port number and low-level protocol name from registed hook handler
-        if [ -z "${port}" ]; then
-          port=$(search_handler_info "${protocol}" port)
-          if [ -n "${port}" ]; then
-            protocol=$(search_handler_info "${protocol}" protocol) # e.g. http->tcp
-            if [ -z "${protocol}" ]; then
-              protocol='tcp'
-            fi
-          fi
-        fi
+      fi
+    }
 
-        #try get port number from DEFAULT_PORT
-        if [ -z "${port}" ]; then
-          port=${DEFAULT_PORT[${protocol^^}]} # Use protocol number to get port number
-          if [ -n "${port}" ]; then
+    function _wall_handle_ip()
+    {
+      local local_ip=$1
+
+      if [ -n "${local_ip}" ]; then
+        ip_list=("${ip_list[*]}" "${local_ip}");
+      fi
+    }
+
+    _wall_handle_inter "${interface}"
+    _wall_handle_ip "${ip}"
+
+
+    if [[ -n ${net} ]]; then
+      if yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}(/[0-3]?[0-9])?$' "${net}"; then
+        _wall_handle_ip "${net}"
+      elif yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}-([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}$' "${net}"; then
+        _wall_handle_ip "${net}"
+      else
+        _wall_handle_inter "${net}"
+      fi
+    fi
+
+
+    # Add * to empty list
+    inter_list=($(printf "%s\n" "${inter_list[@]}" | sort -u | tr '\n' ' '))
+    # inter_list=($(awk -v RS=' ' '!a[$1]++' <<< ${inter_list[@]}))
+    if [ ${#inter_list[@]} -eq 0 ]; then
+      inter_list=("${inter_list[@]}" \*);
+    fi
+
+    ip_list=($(printf "%s\n" "${ip_list[@]}" | sort -u | tr '\n' ' '))
+    # ip_list=($(awk -v RS=' ' '!a[$1]++' <<< ${ip_list[@]}))
+    if [ ${#ip_list[@]} -eq 0 ]; then
+      ip_list=("${ip_list[@]}" \*)
+    fi
+
+
+    # --protocol-name params for `iptables_handle_protocol` only
+    ####################
+    local hook_protocol_name=
+    if [ -n "${protocol}" ]; then
+      hook_protocol_name="--proto-name $(echo "${protocol}" | awk '{print $1}' | tr '[:upper:]' '[:lower:]' | grep -o "[^ ]\+\( \+[^ ]\+\)*")"
+    fi
+
+
+    # try tanslate the port number from protocol name.
+    # try get a real protocol name.
+    ####################
+    if [ -z "${port}" ] && [ -n "${protocol}" ]; then
+
+      #try get port number and low-level protocol name from rule config
+      if [ -z "${port}" ]; then
+        port=$(iptables_config "rule.${protocol}" --read --key port)
+        if [ -n "${port}" ]; then
+          protocol=$(iptables_config "rule.${protocol}" --read --key protocol)
+          if [ -z "${protocol}" ]; then
             protocol='tcp'
           fi
         fi
-
       fi
 
-
-      # protocol params
-      local protocol_params=
-      if [ -n "${protocol}" ]; then
-        protocol_params="${protocol_params} --proto ${protocol}"
-      fi
-      if [ -n "${protocol_flag}" ]; then
-        protocol_params="${protocol_params} --proto-flag ${protocol_flag}"
-      fi
-
-
-      # limit params
-      local limit_params=
-      for limitstr in "${limitstr_array[@]}"; do
-        if [ -n "${limitstr}" ]; then
-          limit_params="${limit_params} --limit ${limitstr}"
+      #try get port number and low-level protocol name from registed hook handler
+      if [ -z "${port}" ]; then
+        port=$(search_handler_info "${protocol}" port)
+        if [ -n "${port}" ]; then
+          protocol=$(search_handler_info "${protocol}" protocol) # e.g. http->tcp
+          if [ -z "${protocol}" ]; then
+            protocol='tcp'
+          fi
         fi
-      done
-
-
-      # log params
-      local log_params=''
-      if [ -n "${logstr}" ]; then
-        log_params="${log_params} --log ${logstr}"
       fi
 
+      #try get port number from DEFAULT_PORT
+      if [ -z "${port}" ]; then
+        port=${DEFAULT_PORT[${protocol^^}]} # Use protocol number to get port number
+        if [ -n "${port}" ]; then
+          protocol='tcp'
+        fi
+      fi
+
+    fi
 
 
-      for inter_in_list in "${inter_list[@]}"; do
-        for ip_in_list in "${ip_list[@]}"; do
+    # protocol params
+    local protocol_params=
+    if [ -n "${protocol}" ]; then
+      protocol_params="${protocol_params} --proto ${protocol}"
+    fi
+    if [ -n "${protocol_flag}" ]; then
+      protocol_params="${protocol_params} --proto-flag ${protocol_flag}"
+    fi
 
-          local hook_params=''
 
-          # hook inter
-          if [ -n "${inter_in_list}" ] && [ "${inter_in_list}" != '*' ]; then
-            hook_params="${hook_params} --interface ${inter_in_list}"
+    # limit params
+    local limit_params=
+    for limitstr in "${limitstr_array[@]}"; do
+      if [ -n "${limitstr}" ]; then
+        limit_params="${limit_params} --limit ${limitstr}"
+      fi
+    done
+
+
+    # log params
+    local log_params=''
+    if [ -n "${logstr}" ]; then
+      log_params="${log_params} --log ${logstr}"
+    fi
+
+
+
+    for inter_in_list in "${inter_list[@]}"; do
+      for ip_in_list in "${ip_list[@]}"; do
+
+        local hook_params=''
+
+        # hook inter
+        if [ -n "${inter_in_list}" ] && [ "${inter_in_list}" != '*' ]; then
+          hook_params="${hook_params} --interface ${inter_in_list}"
+        fi
+        if [ -n "${not_interface}" ]; then
+          hook_params="${hook_params} --not-interface ${not_interface}"
+        fi
+        
+        # hook ip
+        if [ -n "${ip_in_list}" ] && [ "${ip_in_list}" != '*' ]; then
+          hook_params="${hook_params} --ip ${ip_in_list}"
+        fi
+        if [ -n "${not_ip}" ]; then
+          hook_params="${hook_params} --not-ip ${not_ip}"
+        fi
+        
+        # hook port
+        if [ -n "${port}" ]; then
+          hook_params="${hook_params} --port ${port}"
+        fi
+
+        # hook chain 
+        if [ -n "${chain}" ]; then
+          hook_params="${hook_params} --chain ${chain}"
+        fi
+
+
+
+        if ! iptables_handle_protocol ${option} --type ${type} ${hook_protocol_name} ${protocol_params} ${hook_params} ${limit_params} ${log_params} ${additional}; then
+
+          local in_params=''
+          local out_params=''
+
+          echo_verbose "Use common handler ${type}(protocol=${hook_protocol_name} option=${option})"
+
+          # interface
+          if [[ -n "${inter_in_list}" ]] && [[ "${inter_in_list}" != '*' ]]; then
+            in_params="${in_params} --interface-in ${inter_in_list}"
+            out_params="${out_params} --interface-out ${inter_in_list}"
           fi
           if [ -n "${not_interface}" ]; then
-            hook_params="${hook_params} --not-interface ${not_interface}"
+            in_params="${in_params} --not-interface-in ${not_interface}"
+            out_params="${out_params} --not-interface-out ${not_interface}"
           fi
-          
-          # hook ip
-          if [ -n "${ip_in_list}" ] && [ "${ip_in_list}" != '*' ]; then
-            hook_params="${hook_params} --ip ${ip_in_list}"
+
+          # ip
+          if [[ -n "${ip_in_list}" ]] && [[ "${ip_in_list}" != '*' ]]; then
+              in_params="${in_params} --ip-from ${ip_in_list}"
+              out_params="${out_params} --ip-to ${ip_in_list}"
           fi
           if [ -n "${not_ip}" ]; then
-            hook_params="${hook_params} --not-ip ${not_ip}"
+              in_params="${in_params} --not-ip-from ${not_ip}"
+              out_params="${out_params} --not-ip-to ${not_ip}"
           fi
+
+
+          if [[ "${type}" == 'server' ]]; then
+
+            if [ -n "${port}" ]; then
+              in_params="${in_params} --port-to ${port}"
+              out_params="${out_params} --port-from ${port}"
+            fi
+
+            echo_verbose 'Add server chain...'
+            iptables_wrapper ${option} --chain ${chain_in} ${in_params} ${protocol_params} ${limit_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+            iptables_wrapper ${option} --chain ${chain_out} ${out_params} ${protocol_params} ${limit_params} --state ESTABLISHED ${log_params} ${additional}
+
+            if [ -n "${chain}" ]; then
+              iptables_wrapper ${chain_in} --chain INPUT ${in_params} ${protocol_params}
+              iptables_wrapper ${chain_out} --chain OUTPUT ${out_params} ${protocol_params}
+            fi
+
+          elif [[ ${type} == 'client' ]]; then
+
+            if [ -n "${port}" ]; then
+              in_params="${in_params} --port-from ${port}"
+              out_params="${out_params} --port-to ${port}"
+            fi
+
+            echo_verbose 'Add client chain...'
+            iptables_wrapper ${option} --chain ${chain_out} ${out_params} ${protocol_params} ${limit_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+            iptables_wrapper ${option} --chain ${chain_in} ${in_params} ${protocol_params} ${limit_params} --state ESTABLISHED ${log_params} ${additional}
+
+            if [ -n "${chain}" ]; then
+              iptables_wrapper "${chain_out}" --chain OUTPUT ${out_params} ${protocol_params} ${additional}
+              iptables_wrapper "${chain_in}" --chain INPUT ${in_params} ${protocol_params} ${additional}
+            fi
+
+
+          elif [[ ${type} == 'incoming' ]]; then
+
+            if [ -n "${port}" ]; then
+              in_params="${in_params} --port-to ${port}"
+            fi
+
+            echo_verbose 'Add incoming chain...'
+            iptables_wrapper "${option}" --chain ${chain_in} ${in_params} ${protocol_params} ${limit_params} ${log_params} ${additional}
+          elif [[ ${type} == 'outgoing' ]]; then
+            if [ -n "${port}" ]; then
+              out_params="${out_params} --port-from ${port} --port-to ${port}"
+            fi
+
+            echo_verbose 'Add outgoing chain...'
+            iptables_wrapper "${option}" --chain ${chain_out} ${out_params} ${protocol_params} ${limit_params} ${log_params} ${additional}
+
+          fi # end of 'if [[ "${type}" =='
+
+        fi
           
-          # hook port
-          if [ -n "${port}" ]; then
-            hook_params="${hook_params} --port ${port}"
-          fi
-
-          # hook chain 
-          if [ -n "${chain}" ]; then
-            hook_params="${hook_params} --chain ${chain}"
-          fi
-
-
-
-          if ! iptables_handle_protocol ${option} --type ${type} ${hook_protocol_name} ${protocol_params} ${hook_params} ${limit_params} ${log_params} ${additional}; then
-
-            local in_params=''
-            local out_params=''
-
-            echo_verbose "Use common handler ${type}(protocol=${hook_protocol_name} option=${option})"
-
-            # interface
-            if [[ -n "${inter_in_list}" ]] && [[ "${inter_in_list}" != '*' ]]; then
-              in_params="${in_params} --interface-in ${inter_in_list}"
-              out_params="${out_params} --interface-out ${inter_in_list}"
-            fi
-            if [ -n "${not_interface}" ]; then
-              in_params="${in_params} --not-interface-in ${not_interface}"
-              out_params="${out_params} --not-interface-out ${not_interface}"
-            fi
-
-            # ip
-            if [[ -n "${ip_in_list}" ]] && [[ "${ip_in_list}" != '*' ]]; then
-                in_params="${in_params} --ip-from ${ip_in_list}"
-                out_params="${out_params} --ip-to ${ip_in_list}"
-            fi
-            if [ -n "${not_ip}" ]; then
-                in_params="${in_params} --not-ip-from ${not_ip}"
-                out_params="${out_params} --not-ip-to ${not_ip}"
-            fi
-
-
-            if [[ "${type}" == 'server' ]]; then
-
-              if [ -n "${port}" ]; then
-                in_params="${in_params} --port-to ${port}"
-                out_params="${out_params} --port-from ${port}"
-              fi
-
-              echo_verbose 'Add server chain...'
-              iptables_wrapper ${option} --chain ${chain_in} ${in_params} ${protocol_params} ${limit_params} --state NEW,ESTABLISHED ${log_params} ${additional}
-              iptables_wrapper ${option} --chain ${chain_out} ${out_params} ${protocol_params} ${limit_params} --state ESTABLISHED ${log_params} ${additional}
-
-              if [ -n "${chain}" ]; then
-                iptables_wrapper ${chain_in} --chain INPUT ${in_params} ${protocol_params}
-                iptables_wrapper ${chain_out} --chain OUTPUT ${out_params} ${protocol_params}
-              fi
-
-            elif [[ ${type} == 'client' ]]; then
-
-              if [ -n "${port}" ]; then
-                in_params="${in_params} --port-from ${port}"
-                out_params="${out_params} --port-to ${port}"
-              fi
-
-              echo_verbose 'Add client chain...'
-              iptables_wrapper ${option} --chain ${chain_out} ${out_params} ${protocol_params} ${limit_params} --state NEW,ESTABLISHED ${log_params} ${additional}
-              iptables_wrapper ${option} --chain ${chain_in} ${in_params} ${protocol_params} ${limit_params} --state ESTABLISHED ${log_params} ${additional}
-
-              if [ -n "${chain}" ]; then
-                iptables_wrapper "${chain_out}" --chain OUTPUT ${out_params} ${protocol_params} ${additional}
-                iptables_wrapper "${chain_in}" --chain INPUT ${in_params} ${protocol_params} ${additional}
-              fi
-
-
-            elif [[ ${type} == 'incoming' ]]; then
-
-              if [ -n "${port}" ]; then
-                in_params="${in_params} --port-to ${port}"
-              fi
-
-              echo_verbose 'Add incoming chain...'
-              iptables_wrapper "${option}" --chain ${chain_in} ${in_params} ${protocol_params} ${limit_params} ${log_params} ${additional}
-            elif [[ ${type} == 'outgoing' ]]; then
-              if [ -n "${port}" ]; then
-                out_params="${out_params} --port-from ${port} --port-to ${port}"
-              fi
-
-              echo_verbose 'Add outgoing chain...'
-              iptables_wrapper "${option}" --chain ${chain_out} ${out_params} ${protocol_params} ${limit_params} ${log_params} ${additional}
-
-            fi # end of 'if [[ "${type}" =='
-
-          fi
-           
-        done # end of 'for ip_in_list'
-      done # end of 'for inter_in_list'
-    fi
+      done # end of 'for ip_in_list'
+    done # end of 'for inter_in_list'
   fi
 }
 
