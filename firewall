@@ -1689,11 +1689,18 @@ function usage_wall()
 
   --port           Indicate ip-address from incomming connection.
 
-  --proto          The protocol of the rule or of the packet to check. There is three types protocol support
-                   1. The specified protocol can be one of 'tcp' , 'udp', 'udplite', 'icmp', 'esp', 'ah', 'sctp',
-                      'mh' or the special keyward 'all', or it can be a numeric value, representing one of these protocols or a different one.
-                   2. Some great known protocol with protocol number. 'FTP', 'DNS', 'SMTP', 'POP3', 'DHCP', 'MYSQL' ...
-                   3. The protocol regist in hook handler.
+  --proto          The protocol of the rule or of the packet to check. There is 4 types protocol support:
+
+                      1. The specified protocol can be one of 'tcp' , 'udp', 'udplite', 'icmp', 'esp', 'ah', 'sctp',
+                          'mh' or the special keyward 'all', or it can be a numeric value, representing one of these protocols or a different one.
+                      2. Some great known protocol with port number in DEFAULT_PORT dictionary.
+                      3. The protocol regist in hook handler. Handler applies more precise and strict rules to these protocols
+                      4. dummy-protocol:
+                              wall-broadcast: for broadcast package
+                              wall-pkg: for invalid package
+                              wall-synflood: for syn-flood package
+                              wall-scan: for stealth-scan package
+
   --proto-flag     Addition optional of iptables flags. 
 
   --limit          Set the rule limit. the following limit are support. You can indicate mutiple limit in one command.
