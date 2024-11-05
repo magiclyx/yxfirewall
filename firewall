@@ -1546,18 +1546,11 @@ function usage_filter()
   usage: ${CMD} filter <ACCEPT|DROP|BLOCK|RETURN|REJECT|REJECT-WITH|LOG> [options]
   For IPV4 package filtering. It's a wrapper of iptables.
 
-  usage: ${CMD} filter --list
-  Show filter rule information
-
   usage: ${CMD} filter <--help|-h> 
   For this help information.
 
   The following options are allowed:
 
-  --list               List filter rule information.
-  --chain-io           When use --list and indicate a chain 'name' by --chain, -chain-io will display 'name_in' and 'name_out'.
-  --reference          When use --list and indicate a chain 'name' by --chain, --reference will display all reference information of the chain.
-  
   --chain              If indicate a name, command will create custom chain with name_in and name_out.
 
   --fragment           The rule only refers to second and further IPv4 fragments of fragmented packets.
@@ -2840,10 +2833,6 @@ function iptables_filter()
   local chain=
   local additional=
 
-  local show=false
-  local chain_io=false
-  local show_ref=false
-
   local option=$1
   if ! [[ "${option}" =~ ^-.*$ ]]; then
     shift
@@ -2865,23 +2854,10 @@ function iptables_filter()
 	while [ $# -gt 0 ]; do
 		case $1 in
 
-      --list )
-        show=true
-      ;;
-
       --chain )
         shift
         chain=$1
       ;;
-
-      --chain-io )
-				chain_io=true
-			;;
-
-      --reference )
-        shift
-				show_ref=true
-			;;
 
       --info-level )
         shift
@@ -2909,94 +2885,18 @@ function iptables_filter()
       set_info_level "${info_level}"
     fi
 
-    if ${show}; then
 
-      if [ -n "${chain}" ]; then
-
-        if ${chain_io}; then
-
-          # display the chain
-          if iptables_chain exist --name "${chain}_in"; then
-            echo_cmd "${IPTABLES} -nvL ${chain}_in"
-          fi
-          if iptables_chain exist --name "${chain}_out"; then
-            echo ""
-            echo_cmd "${IPTABLES} -nvL ${chain}_out"
-          fi
-
-          # display all reference chain and rule
-          if ${show_ref}; then
-
-            local -A search_map
-            for chain_name in $(iptables_chain list); do
-
-              local has_ref=false
-              if ${IPTABLES} -L "${chain_name}" | tail -n +3 | awk '{print $1}' | grep -q "${chain}_in"; then
-                has_ref=true;
-              fi
-              if ${IPTABLES} -L "${chain_name}" | tail -n +3 | awk '{print $1}' | grep -q "${chain}_out"; then
-                has_ref=true;
-              fi
-
-              if ${has_ref}; then
-                echo ""
-                ${IPTABLES} -nvL ${chain_name} | head -n 2
-                ${IPTABLES} -nvL ${chain_name} | tail -n +3 | grep "${chain}_in"
-                ${IPTABLES} -nvL ${chain_name} | tail -n +3 | grep "${chain}_out"
-              fi
-
-            done # End of (for chain_name in $(iptables_chain list); do)
-
-
-          fi
-
-        else # if ${chain_io}; then
-
-          # display the chain
-          echo_cmd "${IPTABLES} -nvL ${chain}"
-
-          # display all reference chain and rule
-          for chain_name in $(iptables_chain list); do
-
-            if [[ ${chain_name} == ${chain} ]]; then
-              continue
-            fi
-
-            # display all reference chain and rule
-            if ${show_ref}; then
-              if ${IPTABLES} -L "${chain_name}" | tail -n +3 | awk '{print $1}' | grep -Eq "^${chain}\W*$"; then
-                echo ""
-                ${IPTABLES} -nvL ${chain_name} | head -n 2
-                ${IPTABLES} -nvL ${chain_name} | tail -n +3 | grep "${chain}"
-              fi
-            fi
-
-          done
-
-        fi # end of(if ${chain_io}; then)
-
-        exit 0
-
-      else
-        iptables_wrapper --list
-      fi
-
-
-      exit 0
-    else
-
-      if [ -z "${option}" ]; then
-        echo_fatal 'iptables filter need at least one params [DROP , ACCEPT]'
-      fi
-
-      local chain_params=
-      if [ -n "${chain}" ]; then
-        chain_params="--chain ${chain}"
-      fi
-
-      echo_verbose 'Add filter rule...'
-      iptables_wrapper "${option}" ${chain_params} ${additional}
+    if [ -z "${option}" ]; then
+      echo_fatal 'iptables filter need at least one params [DROP , ACCEPT]'
     fi
+
+    local chain_params=
+    if [ -n "${chain}" ]; then
+      chain_params="--chain ${chain}"
+    fi
+
+    echo_verbose 'Add filter rule...'
+    iptables_wrapper "${option}" ${chain_params} ${additional}
   fi
 
 }
