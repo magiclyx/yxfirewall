@@ -3611,12 +3611,12 @@ function iptables_srv()
 function iptables_nat()
 {
 
-  local show=false
   local snat=false
   local dnat=false
   
   # lan
   local from_inter=
+
   # wan
   local to_inter=
   local log=false
@@ -3634,10 +3634,6 @@ function iptables_nat()
 
 			--dnat )
 				dnat=true
-			;;
-
-			--list )
-				show=true
 			;;
 
 			--from-inter )
@@ -3671,10 +3667,7 @@ function iptables_nat()
 	done
 
 
-  if ${show}; then
-    ${IPTABLES} -t nat -nvL
-    exit 0
-  elif ${snat}; then
+  if ${snat}; then
 
     if [ -n "${info_level}" ]; then
       set_info_level "${info_level}"
