@@ -1800,8 +1800,11 @@ EOF
 function usage_list()
 {
    cat <<EOF
-  usage: ${CMD} list [--chain name] [--numeric|--verbose|--line-num|--chain-io|--reference|] 
+  usage: ${CMD} list [--table|--numeric|--verbose|--line-num|--chain-io|--reference|] 
   List all rules in the select chain. If no chain is selected, all chains are list.
+
+  usage: ${CMD} list <chain_name> [--table|--numeric|--verbose|--line-num|--chain-io|--reference|] 
+  List rule information with the selected chain.
 
   usage: ${CMD} list <--help|-h> 
   For this help information.
@@ -4078,7 +4081,6 @@ function iptables_loopback()
 
 function iptables_list()
 {
-  local chain=
   local table=
   local numberic=false
   local verbose=false
@@ -4089,13 +4091,15 @@ function iptables_list()
   local show_help=false
   local additional=
 
+  local chain=$1
+  if ! [[ "${chain}" =~ ^-.*$ ]]; then
+    shift
+  else
+    chain=
+  fi
+
   while [ $# -gt 0 ]; do
 		case $1 in
-
-      --chain )
-        shift
-        chain=$1
-      ;;
 
       --table )
         shift
