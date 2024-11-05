@@ -1810,6 +1810,7 @@ function usage_list()
   The following options are allowed:
   --chain      indicate a name of the chain. if not give a chain name, command will display all chains information.
 
+  --table      This option specifies the packet matching table which the command should operate on.
   --numeric    Numeric output. IP addresses and port numbers will be printed in numeric format.
   --verbose    Verbose output. This option makes the list command show the interface name, the rule options (if any), and the TOS masks.
   --line-num   When listing rules, add line numbers to the beginning of each rule.
@@ -3668,7 +3669,7 @@ function iptables_nat()
 
 
   if ${show}; then
-    echo_cmd "iptables -t nat -nvL"
+    ${IPTABLES} -t nat -nvL
     exit 0
   elif ${snat}; then
 
@@ -4078,6 +4079,7 @@ function iptables_loopback()
 function iptables_list()
 {
   local chain=
+  local table=
   local numberic=false
   local verbose=false
   local line_num=false
@@ -4093,6 +4095,11 @@ function iptables_list()
       --chain )
         shift
         chain=$1
+      ;;
+
+      --table )
+        shift
+        table=$1
       ;;
 
       --numeric )
@@ -4141,6 +4148,11 @@ function iptables_list()
     fi
 
     local params=''
+    if [ -n "${table}" ]; then
+      params="${params} --table ${table}"
+    else
+      params="${params} --table filter"
+    fi
     if ${numberic}; then
       params="${params} --numeric"
     fi
