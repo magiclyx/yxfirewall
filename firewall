@@ -1376,8 +1376,8 @@ cat <<EOF
   nat:      SNAT or DNAT IPV4 package
   incoming: For IPV4 incoming package filtering
   outgoing: For IPV4 outgoing filtering
-  server:   The rule work on 'New' connection on incoming and 'Established/Relate' connection on outgoing.
-  client:   The rule work on 'New' connection on outgoing and 'Established/Relate' connection on incoming.
+  server:   For 'New' connection on incoming and 'Established/Relate' connection on outgoing.
+  client:   For 'New' connection on outgoing and 'Established/Relate' connection on incoming.
   loopback: Fast command for loopback interface.
   config:   Read, write or remove the config file on specific domain.
 
@@ -1412,7 +1412,7 @@ EOF
 function usage_clear() {
 cat <<EOF
   usage: ${CMD} clear [--info-level xxx]
-  Clear all rule.
+  Clear all rule and custom chain.
 
   usage: ${CMD} clear <--help|-h> 
   For this help information.
@@ -1552,7 +1552,7 @@ function usage_filter()
 
   --list               List filter rule information.
   
-  --rule               Name of the current rule. If indicate a name, command will create a custom chain on table.
+  --chain              If indicate a name, command will create a custom chain on table.
 
   --fragment           The rule only refers to second and further IPv4 fragments of fragmented packets.
   --not-fragment       Same as --fragment. but sense is inverted.
@@ -1657,10 +1657,10 @@ function usage_wall()
   For IPV4 outgoing filtering
 
   usage: ${CMD} Server <accept|drop|block|return|reject> [options]
-  The rule work on 'New' connection on incoming and 'Established/Relate' connection on outgoing.
+  For 'New' connection on incoming and 'Established/Relate' connection on outgoing.
 
   usage: ${CMD} Client <accept|drop|block|return|reject> [options]
-  The rule work on 'New' connection on outgoing and 'Established/Relate' connection on incoming.
+  For 'New' connection on outgoing and 'Established/Relate' connection on incoming.
 
   usage: ${CMD} --list [options]
   List all rules on select chain.
@@ -1669,7 +1669,7 @@ function usage_wall()
   The following options are allowed:
   --list           List all rules on select chain.
 
-  --rule           Name of the current rule. If indicate a name, command will create a custom chain on table.
+  --chain          If indicate, command will create a custom chain on table.
 
   --interface      Name of an interface via which a package was received. '*' means all interface.
   --not-interface  Same as '--interface' but sense is inverted.
@@ -2308,7 +2308,7 @@ function iptables_default()
 function iptables_wrapper()
 {
 
-  local rule=
+  local chain=
 
   local interface_in=
   local interface_out=
@@ -2383,10 +2383,10 @@ function iptables_wrapper()
 
 		case $1 in
 
-			--rule )
+			--chain )
         cursor=$1
 				shift
-				rule=$1
+				chain=$1
 			;;
 
       --fragment )
@@ -2554,18 +2554,20 @@ function iptables_wrapper()
       # fi
 
       # chain
-      if [ -n "${rule}" ]; then
-        if [[ "${rule}" == 'input' ]] || [[ "${rule}" == 'Input' ]] || [[ "${rule}" == 'INPUT' ]]; then
-          rule='INPUT'
-        elif [[ "${rule}" == 'output' ]] || [[ "${rule}" == 'Output' ]] || [[ "${rule}" == 'OUTPUT' ]]; then
-          rule='OUTPUT'
+      if [ -n "${chain}" ]; then
+
+
+        if strcontains "${chain}" 'input' --ignorecase; then
+          chain='INPUT'
+        elif strcontains "${chain}" 'output' --ignorecase; then
+          chain='OUTPUT'
         else
           :
           # for custom chain
-          # rule=$(echo "${rule}" | tr '[:lower:]' '[:upper:]')
+          # chain=$(echo "${chain}" | tr '[:lower:]' '[:upper:]')
         fi
       else
-        echo_fatal "Must indicate --rule [rule]"
+        echo_fatal "Must indicate --chain [chain]"
       fi
 
       # fragment
@@ -2734,9 +2736,9 @@ function iptables_wrapper()
         option_params=" -j ${option}"
       fi
 
-      if [ -n "${rule}" ]; then
-        if ! iptables_chain exist --name "${rule}"; then
-          iptables_chain create --name "${rule}"
+      if [ -n "${chain}" ]; then
+        if ! iptables_chain exist --name "${chain}"; then
+          iptables_chain create --name "${chain}"
         fi
       fi
 
@@ -2758,13 +2760,13 @@ function iptables_wrapper()
 
         if [ -n "${log_prefix}" ]; then
           # 有log参数，则记录log
-          echo_cmd "${IPTABLES} -A ${rule}${fragment_params}${interface_params}${protocol_params}${mac_params}${ip_params}${port_params}${state_params}${log_limit_params} -j LOG --log-prefix ${log_prefix}:${additional}"
+          echo_cmd "${IPTABLES} -A ${chain}${fragment_params}${interface_params}${protocol_params}${mac_params}${ip_params}${port_params}${state_params}${log_limit_params} -j LOG --log-prefix ${log_prefix}:${additional}"
         fi
       fi
 
       if [[ ${option} != "LOG" ]]; then
         # 如果option 已经是log, 则不再额外执行其他逻辑
-        echo_cmd "${IPTABLES} -A ${rule}${fragment_params}${interface_params}${protocol_params}${mac_params}${ip_params}${port_params}${state_params}${limit_params}${option_params}${additional}"
+        echo_cmd "${IPTABLES} -A ${chain}${fragment_params}${interface_params}${protocol_params}${mac_params}${ip_params}${port_params}${state_params}${limit_params}${option_params}${additional}"
       fi
 
     fi # end of if ${show};
@@ -2913,7 +2915,7 @@ function iptables_handle_protocol()
 
 function iptables_wall()
 {
-  local rule=
+  local chain=
 
   local interface=
   local not_interface=
@@ -2939,13 +2941,13 @@ function iptables_wall()
   if ! [[ "${type}" =~ ^-.*$ ]]; then
     shift
 
-    if [[ ${type} == 'srv' ]] || [[ ${type} == 'server' ]] || [[ ${type} == 'Srv' ]] || [[ ${type} == 'Server' ]] || [[ ${type} == 'SERVER' ]] ; then
+    if strcontains "${type}" 'server srv' --ignorecase; then
       type="server"
-    elif [[ ${type} == 'clt' ]] || [[ ${type} == 'client' ]] || [[ ${type} == 'Clt' ]] || [[ ${type} == 'Client' ]] || [[ ${type} == 'CLIENT' ]]; then
+    elif strcontains "${type}" 'client clt' --ignorecase; then
       type="client"
-    elif [[ ${type} == 'incoming' ]] || [[ ${type} == 'Incoming' ]] || [[ ${type} == 'INCOMING' ]]; then
+    elif strcontains "${type}" 'incoming' --ignorecase; then
       type="incoming"
-    elif [[ ${type} == 'outgoing' ]] || [[ ${type} == 'Outgoing' ]] || [[ ${type} == 'OUTGOING' ]]; then
+    elif strcontains "${type}" 'outgoing' --ignorecase; then
       type="outgoing"
     else
       echo_fatal "${CMD} wall unknown operation-type: ${type}"
@@ -2981,10 +2983,10 @@ function iptables_wall()
     
 		case $1 in
 
-      --rule )
+      --chain )
         cursor=$1
 				shift
-        rule=$1
+        chain=$1
 			;;
 
       --interface )
@@ -3174,15 +3176,15 @@ function iptables_wall()
       # fi
 
 
-      # rule params
-      local rule_in=INPUT
-      local rule_out=OUTPUT
-      if [ -n "${rule}" ]; then
-        if strcontains "${rule}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
-          echo_fatal "Can not use rule with name '${rule}'. "
+      # chain params
+      local chain_in=INPUT
+      local chain_out=OUTPUT
+      if [ -n "${chain}" ]; then
+        if strcontains "${chain}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
+          echo_fatal "Can not use chain with name '${chain}'. "
         else
-          rule_in="${rule}"_in
-          rule_out="${rule}"_out
+          chain_in="${chain}"_in
+          chain_out="${chain}"_out
         fi
       fi
 
@@ -3401,9 +3403,9 @@ function iptables_wall()
             hook_params="${hook_params} --port ${port}"
           fi
 
-          # hook rule
-          if [ -n "${rule}" ]; then
-            hook_params="${hook_params} --rule ${rule}"
+          # hook chain 
+          if [ -n "${chain}" ]; then
+            hook_params="${hook_params} --chain ${chain}"
           fi
 
 
@@ -3443,13 +3445,13 @@ function iptables_wall()
                 out_params="${out_params} --port-from ${port}"
               fi
 
-              echo_verbose 'Add server rule...'
-              iptables_wrapper ${option} --rule ${rule_in} ${in_params} ${protocol_params} ${limit_params} --state NEW,ESTABLISHED ${log_params} ${additional}
-              iptables_wrapper ${option} --rule ${rule_out} ${out_params} ${protocol_params} ${limit_params} --state ESTABLISHED ${log_params} ${additional}
+              echo_verbose 'Add server chain...'
+              iptables_wrapper ${option} --chain ${chain_in} ${in_params} ${protocol_params} ${limit_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+              iptables_wrapper ${option} --chain ${chain_out} ${out_params} ${protocol_params} ${limit_params} --state ESTABLISHED ${log_params} ${additional}
 
-              if [ -n "${rule}" ]; then
-                iptables_wrapper ${rule_in} --rule INPUT ${in_params} ${protocol_params}
-                iptables_wrapper ${rule_out} --rule OUTPUT ${out_params} ${protocol_params}
+              if [ -n "${chain}" ]; then
+                iptables_wrapper ${chain_in} --chain INPUT ${in_params} ${protocol_params}
+                iptables_wrapper ${chain_out} --chain OUTPUT ${out_params} ${protocol_params}
               fi
 
             elif [[ ${type} == 'client' ]]; then
@@ -3459,13 +3461,13 @@ function iptables_wall()
                 out_params="${out_params} --port-to ${port}"
               fi
 
-              echo_verbose 'Add client rule...'
-              iptables_wrapper ${option} --rule ${rule_out} ${out_params} ${protocol_params} ${limit_params} --state NEW,ESTABLISHED ${log_params} ${additional}
-              iptables_wrapper ${option} --rule ${rule_in} ${in_params} ${protocol_params} ${limit_params} --state ESTABLISHED ${log_params} ${additional}
+              echo_verbose 'Add client chain...'
+              iptables_wrapper ${option} --chain ${chain_out} ${out_params} ${protocol_params} ${limit_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+              iptables_wrapper ${option} --chain ${chain_in} ${in_params} ${protocol_params} ${limit_params} --state ESTABLISHED ${log_params} ${additional}
 
-              if [ -n "${rule}" ]; then
-                iptables_wrapper "${rule_out}" --rule OUTPUT ${out_params} ${protocol_params} ${additional}
-                iptables_wrapper "${rule_in}" --rule INPUT ${in_params} ${protocol_params} ${additional}
+              if [ -n "${chain}" ]; then
+                iptables_wrapper "${chain_out}" --chain OUTPUT ${out_params} ${protocol_params} ${additional}
+                iptables_wrapper "${chain_in}" --chain INPUT ${in_params} ${protocol_params} ${additional}
               fi
 
 
@@ -3475,15 +3477,15 @@ function iptables_wall()
                 in_params="${in_params} --port-to ${port}"
               fi
 
-              echo_verbose 'Add incoming rule...'
-              iptables_wrapper "${option}" --rule ${rule_in} ${in_params} ${protocol_params} ${limit_params} ${log_params} ${additional}
+              echo_verbose 'Add incoming chain...'
+              iptables_wrapper "${option}" --chain ${chain_in} ${in_params} ${protocol_params} ${limit_params} ${log_params} ${additional}
             elif [[ ${type} == 'outgoing' ]]; then
               if [ -n "${port}" ]; then
                 out_params="${out_params} --port-from ${port} --port-to ${port}"
               fi
 
-              echo_verbose 'Add outgoing rule...'
-              iptables_wrapper "${option}" --rule ${rule_out} ${out_params} ${protocol_params} ${limit_params} ${log_params} ${additional}
+              echo_verbose 'Add outgoing chain...'
+              iptables_wrapper "${option}" --chain ${chain_out} ${out_params} ${protocol_params} ${limit_params} ${log_params} ${additional}
 
             fi # end of 'if [[ "${type}" =='
 
@@ -3961,7 +3963,7 @@ function iptables_loopback()
 
 function handle_package_server()
 {
-  local rule=
+  local chain=
 
   local interface=
   local not_interface=
@@ -3997,10 +3999,10 @@ function handle_package_server()
         type=$1
 			;;
 
-      --rule )
+      --chain )
         cursor=$1
 				shift
-        rule=$1
+        chain=$1
 			;;
 
       --interface )
@@ -4070,15 +4072,15 @@ function handle_package_server()
 
 
 
-  # fix rule
-  local rule_in=INPUT
-  local rule_out=OUTPUT
-  if [ -n "${rule}" ]; then
-    if strcontains "${rule}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
-      echo_fatal "Can not use rule with name '${rule}'. "
+  # fix chain
+  local chain_in=INPUT
+  local chain_out=OUTPUT
+  if [ -n "${chain}" ]; then
+    if strcontains "${chain}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
+      echo_fatal "Can not use chain with name '${chain}'. "
     else
-      rule_in="${rule}"_in
-      rule_out="${rule}"_out
+      chain_in="${chain}"_in
+      chain_out="${chain}"_out
     fi
   fi
 
@@ -4117,18 +4119,18 @@ function handle_package_server()
     in_port_params="--port-to ${port}"
     out_port_params="--port-from ${port}"
     in_params="${in_params} ${in_port_params}"
-    out_params="${out_params} --port-from ${port}"
+    out_params="${out_params} ${out_port_params}"
   fi
 
-  #rule
-  # local rule_params=''
-  local rule_in_params=''
-  local rule_out_params=''
-  if [ -n "${rule_in}" ]; then
-    rule_in_params="${rule_in_params} --rule ${rule_in}"
+  # chain
+  # local chain_params=''
+  local chain_in_params=''
+  local chain_out_params=''
+  if [ -n "${chain_in}" ]; then
+    chain_in_params="${chain_in_params} --chain ${chain_in}"
   fi
-  if [ -n "${rule_out}" ]; then
-    rule_out_params="${rule_in_params} --rule ${rule_out}"
+  if [ -n "${chain_out}" ]; then
+    chain_out_params="${chain_out_params} --chain ${chain_out}"
   fi
 
   #log
@@ -4140,10 +4142,10 @@ function handle_package_server()
 
   if strcontains "${option}" 'Drop Disable Block' --ignorecase; then
     echo_verbose 'Add bad-package rule...'
-    iptables_wrapper ${option} --proto ALL ${rule_in_params} ${in_params} --state INVALID ${log_params} ${additional}
-    iptables_wrapper RETURN --proto ALL ${rule_in_params} ${in_params}
-    if [ -n "${rule}" ]; then
-      iptables_wrapper "${rule_in}" --rule INPUT ${in_params}
+    iptables_wrapper ${option} --proto ALL ${chain_in_params} ${in_params} --state INVALID ${log_params} ${additional}
+    iptables_wrapper RETURN --proto ALL ${chain_in_params} ${in_params}
+    if [ -n "${chain}" ]; then
+      iptables_wrapper "${chain_in}" --chain INPUT ${in_params}
     fi
   else
     # Allow 不需要处理
@@ -4156,7 +4158,7 @@ function handle_package_server()
 
 function handle_synflood_server()
 {
-  local rule=
+  local chain=
 
   local interface=
   local not_interface=
@@ -4192,10 +4194,10 @@ function handle_synflood_server()
         type=$1
 			;;
 
-      --rule )
+      --chain )
         cursor=$1
 				shift
-        rule=$1
+        chain=$1
 			;;
 
       --interface )
@@ -4265,15 +4267,15 @@ function handle_synflood_server()
 
 
 
-  # fix rule
-  local rule_in=INPUT
-  local rule_out=OUTPUT
-  if [ -n "${rule}" ]; then
-    if strcontains "${rule}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
-      echo_fatal "Can not use rule with name '${rule}'. "
+  # fix chain
+  local chain_in=INPUT
+  local chain_out=OUTPUT
+  if [ -n "${chain}" ]; then
+    if strcontains "${chain}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
+      echo_fatal "Can not use chain with name '${chain}'. "
     else
-      rule_in="${rule}"_in
-      rule_out="${rule}"_out
+      chain_in="${chain}"_in
+      chain_out="${chain}"_out
     fi
   fi
 
@@ -4312,18 +4314,18 @@ function handle_synflood_server()
     in_port_params="--port-to ${port}"
     out_port_params="--port-from ${port}"
     in_params="${in_params} ${in_port_params}"
-    out_params="${out_params} --port-from ${port}"
+    out_params="${out_params} ${out_port_params}"
   fi
 
-  #rule
-  # local rule_params=''
-  local rule_in_params=''
-  local rule_out_params=''
-  if [ -n "${rule_in}" ]; then
-    rule_in_params="${rule_in_params} --rule ${rule_in}"
+  # chain
+  # local chain_params=''
+  local chain_in_params=''
+  local chain_out_params=''
+  if [ -n "${chain_in}" ]; then
+    chain_in_params="${chain_in_params} --chain ${chain_in}"
   fi
-  if [ -n "${rule_out}" ]; then
-    rule_out_params="${rule_in_params} --rule ${rule_out}"
+  if [ -n "${chain_out}" ]; then
+    chain_out_params="${chain_out_params} --chain ${chain_out}"
   fi
 
   #log
@@ -4334,12 +4336,12 @@ function handle_synflood_server()
 
   if strcontains "${option}" 'Drop Disable Block' --ignorecase; then
     echo_verbose 'Add syn-flood rule...'
-    iptables_wrapper RETURN --proto tcp --syn ${rule_in_params} ${in_params} --limit limit-upto:syn_flood:200/s:3:srcip:::300000
-    iptables_wrapper LOG ${log_params} ${rule_in_params} ${in_params}
-    iptables_wrapper DROP ${rule_in_params} ${in_params}
+    iptables_wrapper RETURN --proto tcp --syn ${chain_in_params} ${in_params} --limit limit-upto:syn_flood:200/s:3:srcip:::300000
+    iptables_wrapper LOG ${log_params} ${chain_in_params} ${in_params}
+    iptables_wrapper DROP ${chain_in_params} ${in_params}
 
-    if [ -n "${rule}" ]; then
-      iptables_wrapper "${rule_in}" --proto tcp --syn --rule INPUT ${in_params} ${additional}
+    if [ -n "${chain}" ]; then
+      iptables_wrapper "${chain_in}" --proto tcp --syn --chain INPUT ${in_params} ${additional}
     fi
   else
     # Allow 不需要处理
@@ -4348,10 +4350,10 @@ function handle_synflood_server()
 
 
   # iptables_wrapper ${option} 
-  # iptables_wrapper ${option} --proto ALL ${rule_in_params} ${in_params} --state INVALID ${log_params} ${additional}
-  # iptables_wrapper RETURN --proto ALL ${rule_in_params}
-  # if [ -n "${rule}" ]; then
-  #   iptables_wrapper "${rule_in}" --proto tcp --syn --rule INPUT ${in_params} ${additional}
+  # iptables_wrapper ${option} --proto ALL ${chain_in_params} ${in_params} --state INVALID ${log_params} ${additional}
+  # iptables_wrapper RETURN --proto ALL ${chain_in_params}
+  # if [ -n "${chain}" ]; then
+  #   iptables_wrapper "${chain_in}" --proto tcp --syn --chain INPUT ${in_params} ${additional}
   # fi
 
 
@@ -4360,7 +4362,7 @@ function handle_synflood_server()
 
 function handle_stealscan_server()
 {
-  local rule=
+  local chain=
 
   local interface=
   local not_interface=
@@ -4396,10 +4398,10 @@ function handle_stealscan_server()
         type=$1
 			;;
 
-      --rule )
+      --chain )
         cursor=$1
 				shift
-        rule=$1
+        chain=$1
 			;;
 
       --interface )
@@ -4469,15 +4471,15 @@ function handle_stealscan_server()
 
 
 
-  # fix rule
-  local rule_in=INPUT
-  local rule_out=OUTPUT
-  if [ -n "${rule}" ]; then
-    if strcontains "${rule}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
-      echo_fatal "Can not use rule with name '${rule}'. "
+  # fix chain 
+  local chain_in=INPUT
+  local chain_out=OUTPUT
+  if [ -n "${chain}" ]; then
+    if strcontains "${chain}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
+      echo_fatal "Can not use chain with name '${chain}'. "
     else
-      rule_in="${rule}"_in
-      rule_out="${rule}"_out
+      chain_in="${chain}"_in
+      chain_out="${chain}"_out
     fi
   fi
 
@@ -4516,18 +4518,18 @@ function handle_stealscan_server()
     in_port_params="--port-to ${port}"
     out_port_params="--port-from ${port}"
     in_params="${in_params} ${in_port_params}"
-    out_params="${out_params} --port-from ${port}"
+    out_params="${out_params} ${out_port_params}"
   fi
 
-  #rule
-  # local rule_params=''
-  local rule_in_params=''
-  local rule_out_params=''
-  if [ -n "${rule_in}" ]; then
-    rule_in_params="${rule_in_params} --rule ${rule_in}"
+  # chain
+  # local chain_params=''
+  local chain_in_params=''
+  local chain_out_params=''
+  if [ -n "${chain_in}" ]; then
+    chain_in_params="${chain_in_params} --chain ${chain_in}"
   fi
-  if [ -n "${rule_out}" ]; then
-    rule_out_params="${rule_in_params} --rule ${rule_out}"
+  if [ -n "${chain_out}" ]; then
+    chain_out_params="${chain_out_params} --chain ${chain_out}"
   fi
 
   #log
@@ -4549,20 +4551,20 @@ function handle_stealscan_server()
     #
 
     echo_verbose 'Add steal-scan rule...'
-    iptables_wrapper DROP --proto tcp ! --syn ${rule_in_params} ${in_params} --state NEW ${log_params} ${additional}
-    iptables_wrapper DROP --proto tcp --proto-flag ALL NONE ${rule_in_params} ${in_params} ${log_params} ${additional}
-    iptables_wrapper DROP --proto tcp --proto-flag ALL ALL ${rule_in_params} ${in_params} ${log_params} ${additional}
-    iptables_wrapper DROP --proto tcp --proto-flag ALL FIN,URG,PSH ${rule_in_params} ${in_params} ${log_params} ${additional}
-    iptables_wrapper DROP --proto tcp --proto-flag ALL SYN,RST,ACK,FIN,URG ${rule_in_params} ${in_params} ${log_params} ${additional}
-    iptables_wrapper DROP --proto tcp --proto-flag SYN,RST SYN,RST ${rule_in_params} ${in_params} ${log_params} ${additional}
-    iptables_wrapper DROP --proto tcp --proto-flag SYN,FIN SYN,FIN ${rule_in_params} ${in_params} ${log_params} ${additional}
-    iptables_wrapper RETURN ${rule_in_params} ${in_params}
+    iptables_wrapper DROP --proto tcp ! --syn ${chain_in_params} ${in_params} --state NEW ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag ALL NONE ${chain_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag ALL ALL ${chain_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag ALL FIN,URG,PSH ${chain_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag ALL SYN,RST,ACK,FIN,URG ${chain_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag SYN,RST SYN,RST ${chain_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag SYN,FIN SYN,FIN ${chain_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper RETURN ${chain_in_params} ${in_params}
 
 
-    # iptables_wrapper ${option} --proto ALL ${rule_in_params} ${in_params} --state INVALID ${log_params} ${additional}
-    # iptables_wrapper RETURN --proto ALL ${rule_in_params}
-    if [ -n "${rule}" ]; then
-      iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_params}
+    # iptables_wrapper ${option} --proto ALL ${chain_in_params} ${in_params} --state INVALID ${log_params} ${additional}
+    # iptables_wrapper RETURN --proto ALL ${chain_in_params}
+    if [ -n "${chain}" ]; then
+      iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params}
     fi
   fi
 
@@ -4573,7 +4575,7 @@ function handle_stealscan_server()
 
 function handle_broadcast_server()
 {
-  local rule=
+  local chain=
 
   local interface=
   local not_interface=
@@ -4609,10 +4611,10 @@ function handle_broadcast_server()
         type=$1
 			;;
 
-      --rule )
+      --chain )
         cursor=$1
 				shift
-        rule=$1
+        chain=$1
 			;;
 
       --interface )
@@ -4682,15 +4684,15 @@ function handle_broadcast_server()
 
 
 
-  # fix rule
-  local rule_in=INPUT
-  local rule_out=OUTPUT
-  if [ -n "${rule}" ]; then
-    if strcontains "${rule}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
-      echo_fatal "Can not use rule with name '${rule}'. "
+  # fix chain
+  local chain_in=INPUT
+  local chain_out=OUTPUT
+  if [ -n "${chain}" ]; then
+    if strcontains "${chain}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
+      echo_fatal "Can not use chain with name '${chain}'. "
     else
-      rule_in="${rule}"_in
-      rule_out="${rule}"_out
+      chain_in="${chain}"_in
+      chain_out="${chain}"_out
     fi
   fi
 
@@ -4729,18 +4731,18 @@ function handle_broadcast_server()
     in_port_params="--port-to ${port}"
     out_port_params="--port-from ${port}"
     in_params="${in_params} ${in_port_params}"
-    out_params="${out_params} --port-from ${port}"
+    out_params="${out_params} ${out_port_params}"
   fi
 
-  #rule
-  # local rule_params=''
-  local rule_in_params=''
-  local rule_out_params=''
-  if [ -n "${rule_in}" ]; then
-    rule_in_params="${rule_in_params} --rule ${rule_in}"
+  # chain
+  # local chain_params=''
+  local chain_in_params=''
+  local chain_out_params=''
+  if [ -n "${chain_in}" ]; then
+    chain_in_params="${chain_in_params} --chain ${chain_in}"
   fi
-  if [ -n "${rule_out}" ]; then
-    rule_out_params="${rule_in_params} --rule ${rule_out}"
+  if [ -n "${chain_out}" ]; then
+    chain_out_params="${chain_out_params} --chain ${chain_out}"
   fi
 
   #log
@@ -4755,13 +4757,13 @@ function handle_broadcast_server()
     # 发往所有主机（广播地址、组播地址）的数据包
     ###########################################################
     echo_verbose 'Add broadcast package rule...'
-    iptables_wrapper ${option} --ip-to 192.168.1.255 ${rule_in_params} ${in_params} ${log_params} ${additional}
-    iptables_wrapper ${option} --ip-to 255.255.255.255 ${rule_in_params} ${in_params} ${log_params} ${additional}
-    iptables_wrapper ${option} --ip-to 224.0.0.1 ${rule_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper ${option} --ip-to 192.168.1.255 ${chain_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper ${option} --ip-to 255.255.255.255 ${chain_in_params} ${in_params} ${log_params} ${additional}
+    iptables_wrapper ${option} --ip-to 224.0.0.1 ${chain_in_params} ${in_params} ${log_params} ${additional}
 
-    if [ -n "${rule}" ]; then
-      iptables_wrapper RETURN ${rule_in_params} ${in_params}
-      iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_params}
+    if [ -n "${chain}" ]; then
+      iptables_wrapper RETURN ${chain_in_params} ${in_params}
+      iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params}
     fi
   fi
 
@@ -4771,7 +4773,7 @@ function handle_broadcast_server()
 
 function handle_icmp_server_and_client()
 {
-  local rule=
+  local chain=
 
   local interface=
   local not_interface=
@@ -4807,10 +4809,10 @@ function handle_icmp_server_and_client()
         type=$1
 			;;
 
-      --rule )
+      --chain )
         cursor=$1
 				shift
-        rule=$1
+        chain=$1
 			;;
 
       --interface )
@@ -4880,15 +4882,15 @@ function handle_icmp_server_and_client()
 
 
 
-  # fix rule
-  local rule_in=INPUT
-  local rule_out=OUTPUT
-  if [ -n "${rule}" ]; then
-    if strcontains "${rule}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
-      echo_fatal "Can not use rule with name '${rule}'. "
+  # fix chain
+  local chain_in=INPUT
+  local chain_out=OUTPUT
+  if [ -n "${chain}" ]; then
+    if strcontains "${chain}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
+      echo_fatal "Can not use chain with name '${chain}'. "
     else
-      rule_in="${rule}"_in
-      rule_out="${rule}"_out
+      chain_in="${chain}"_in
+      chain_out="${chain}"_out
     fi
   fi
 
@@ -4927,18 +4929,18 @@ function handle_icmp_server_and_client()
     in_port_params="--port-to ${port}"
     out_port_params="--port-from ${port}"
     in_params="${in_params} ${in_port_params}"
-    out_params="${out_params} --port-from ${port}"
+    out_params="${out_params} ${out_port_params}"
   fi
 
-  #rule
-  # local rule_params=''
-  local rule_in_params=''
-  local rule_out_params=''
-  if [ -n "${rule_in}" ]; then
-    rule_in_params="${rule_in_params} --rule ${rule_in}"
+  # chain
+  # local chain_params=''
+  local chain_in_params=''
+  local chain_out_params=''
+  if [ -n "${chain_in}" ]; then
+    chain_in_params="${chain_in_params} --chain ${chain_in}"
   fi
-  if [ -n "${rule_out}" ]; then
-    rule_out_params="${rule_in_params} --rule ${rule_out}"
+  if [ -n "${chain_out}" ]; then
+    chain_out_params="${chain_out_params} --chain ${chain_out}"
   fi
 
   #log
@@ -4959,34 +4961,34 @@ function handle_icmp_server_and_client()
 
     if strcontains "${option}" 'Allow Accept Enable' --ignorecase; then
       # 丢弃 fragment
-      iptables_wrapper DROP --proto icmp --fragment ${rule_in_params} ${in_params} ${log_params} ${additional}
+      iptables_wrapper DROP --proto icmp --fragment ${chain_in_params} ${in_params} ${log_params} ${additional}
 
 
       # ping limit 限制 incoming
-      iptables_wrapper ACCEPT --proto icmp --proto-flag echo-request ${rule_in_params} --limit limit-upto:ping_attack:1/s:10:srcip:::300000 ${in_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+      iptables_wrapper ACCEPT --proto icmp --proto-flag echo-request ${chain_in_params} --limit limit-upto:ping_attack:1/s:10:srcip:::300000 ${in_params} --state NEW,ESTABLISHED ${log_params} ${additional}
       # 永久禁用icmp时间戳 incoming
-      iptables_wrapper DROP --proto icmp --proto-flag timestamp-request ${rule_in_params} ${in_params} ${additional}
+      iptables_wrapper DROP --proto icmp --proto-flag timestamp-request ${chain_in_params} ${in_params} ${additional}
 
       # ping limit 限制 outgoing
-      iptables_wrapper ACCEPT --proto icmp --proto-flag echo-reply ${rule_out_params} ${out_params} --state ESTABLISHED
+      iptables_wrapper ACCEPT --proto icmp --proto-flag echo-reply ${chain_out_params} ${out_params} --state ESTABLISHED
       # 永久禁用icmp时间戳 outgoing
-      iptables_wrapper DROP --proto icmp --proto-flag timestamp-reply ${rule_out_params} ${out_params} ${additional}
+      iptables_wrapper DROP --proto icmp --proto-flag timestamp-reply ${chain_out_params} ${out_params} ${additional}
 
     elif strcontains "${option}" 'Block Drop Disable' --ignorecase; then
 
       # 丢弃 fragment
-      iptables_wrapper DROP --proto icmp --fragment ${rule_in_params} ${in_params} ${log_params} ${additional}
+      iptables_wrapper DROP --proto icmp --fragment ${chain_in_params} ${in_params} ${log_params} ${additional}
 
 
       # ping limit 限制 incoming
-      iptables_wrapper DROP --proto icmp --proto-flag echo-request ${rule_in_params} ${in_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+      iptables_wrapper DROP --proto icmp --proto-flag echo-request ${chain_in_params} ${in_params} --state NEW,ESTABLISHED ${log_params} ${additional}
       # 永久禁用icmp时间戳 incoming
-      iptables_wrapper DROP --proto icmp --proto-flag timestamp-request ${rule_in_params} ${in_params} ${additional}
+      iptables_wrapper DROP --proto icmp --proto-flag timestamp-request ${chain_in_params} ${in_params} ${additional}
 
       # ping limit 限制 outgoing
-      iptables_wrapper DROP --proto icmp --proto-flag echo-reply ${rule_out_params} ${out_params} --state ESTABLISHED
+      iptables_wrapper DROP --proto icmp --proto-flag echo-reply ${chain_out_params} ${out_params} --state ESTABLISHED
       # 永久禁用icmp时间戳 outgoing
-      iptables_wrapper DROP --proto icmp --proto-flag timestamp-reply ${rule_out_params} ${out_params} ${additional}
+      iptables_wrapper DROP --proto icmp --proto-flag timestamp-reply ${chain_out_params} ${out_params} ${additional}
 
     else
       return 1
@@ -4995,20 +4997,20 @@ function handle_icmp_server_and_client()
   elif [[ "${type}" == "client" ]]; then
 
     # ping limit 限制 outgoing
-    iptables_wrapper ${option} --proto icmp --proto-flag echo-request ${rule_out_params} ${out_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+    iptables_wrapper ${option} --proto icmp --proto-flag echo-request ${chain_out_params} ${out_params} --state NEW,ESTABLISHED ${log_params} ${additional}
     # icmp 时间戳 限制 outgoing
-    iptables_wrapper ${option} --proto icmp --proto-flag timestamp-request ${rule_out_params} ${out_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+    iptables_wrapper ${option} --proto icmp --proto-flag timestamp-request ${chain_out_params} ${out_params} --state NEW,ESTABLISHED ${log_params} ${additional}
 
     # ping limit 限制 incoming
-    iptables_wrapper ${option} --proto icmp --proto-flag echo-reply ${rule_in_params} ${in_params} --state ESTABLISHED
+    iptables_wrapper ${option} --proto icmp --proto-flag echo-reply ${chain_in_params} ${in_params} --state ESTABLISHED
     # icmp 时间戳 限制 incoming
-    iptables_wrapper ${option} --proto icmp --proto-flag timestamp-reply ${rule_in_params} ${in_params} --state ESTABLISHED
+    iptables_wrapper ${option} --proto icmp --proto-flag timestamp-reply ${chain_in_params} ${in_params} --state ESTABLISHED
 
   fi
 
-  if [ -n "${rule}" ]; then
-    iptables_wrapper "${rule_in}" --proto icmp --rule INPUT ${in_params}
-    iptables_wrapper "${rule_out}" --proto icmp --rule OUTPUT ${out_params}
+  if [ -n "${chain}" ]; then
+    iptables_wrapper "${chain_in}" --proto icmp --chain INPUT ${in_params}
+    iptables_wrapper "${chain_out}" --proto icmp --chain OUTPUT ${out_params}
   fi
 
 
@@ -5021,7 +5023,7 @@ function handle_icmp_server_and_client()
 function handle_ssh_server()
 {
 
-  local rule=
+  local chain=
 
   local interface=
   local not_interface=
@@ -5057,10 +5059,10 @@ function handle_ssh_server()
         type=$1
 			;;
 
-      --rule )
+      --chain )
         cursor=$1
 				shift
-        rule=$1
+        chain=$1
 			;;
 
       --interface )
@@ -5143,15 +5145,15 @@ function handle_ssh_server()
 
 
 
-  # fix rule
-  local rule_in=INPUT
-  local rule_out=OUTPUT
-  if [ -n "${rule}" ]; then
-    if strcontains "${rule}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
-      echo_fatal "Can not use rule with name '${rule}'. "
+  # fix chain
+  local chain_in=INPUT
+  local chain_out=OUTPUT
+  if [ -n "${chain}" ]; then
+    if strcontains "${chain}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
+      echo_fatal "Can not use chain with name '${chain}'. "
     else
-      rule_in="${rule}"_in
-      rule_out="${rule}"_out
+      chain_in="${chain}"_in
+      chain_out="${chain}"_out
     fi
   fi
 
@@ -5190,18 +5192,18 @@ function handle_ssh_server()
     in_port_params="--port-to ${port}"
     out_port_params="--port-from ${port}"
     in_params="${in_params} ${in_port_params}"
-    out_params="${out_params} --port-from ${port}"
+    out_params="${out_params} ${out_port_params}"
   fi
 
-  #rule
-  # local rule_params=''
-  local rule_in_params=''
-  local rule_out_params=''
-  if [ -n "${rule_in}" ]; then
-    rule_in_params="${rule_in_params} --rule ${rule_in}"
+  # chain
+  # local chain_params=''
+  local chain_in_params=''
+  local chain_out_params=''
+  if [ -n "${chain_in}" ]; then
+    chain_in_params="${chain_in_params} --chain ${chain_in}"
   fi
-  if [ -n "${rule_out}" ]; then
-    rule_out_params="${rule_in_params} --rule ${rule_out}"
+  if [ -n "${chain_out}" ]; then
+    chain_out_params="${chain_out_params} --chain ${chain_out}"
   fi
 
   #log
@@ -5214,8 +5216,8 @@ function handle_ssh_server()
   echo_verbose 'Add ssh rule...'
   if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
 
-    #iptables_wrapper --proto tcp --syn ${rule_params} ${in_params} --limit recent-set:ssh_attack --state NEW,ESTABLISHED 
-    #iptables_wrapper REJECT-WITH tcp-reset --proto tcp --syn ${rule_params} ${in_params} --limit recent-check:ssh_attack:60:5 --state NEW,ESTABLISHED ${additional}
+    #iptables_wrapper --proto tcp --syn ${chain_params} ${in_params} --limit recent-set:ssh_attack --state NEW,ESTABLISHED 
+    #iptables_wrapper REJECT-WITH tcp-reset --proto tcp --syn ${chain_params} ${in_params} --limit recent-check:ssh_attack:60:5 --state NEW,ESTABLISHED ${additional}
 
     ###########################################################
     # 攻击防护：SSH 暴力破解
@@ -5225,25 +5227,25 @@ function handle_ssh_server()
     # 如果 SSH 服务器开启了密码认证，请取消注释掉以下内容。
     ###########################################################
     # REJECT-WITH tcp-reset
-    iptables_wrapper REJECT-WITH icmp-port-unreachable --proto tcp ${rule_in_params} ${in_params} --limit recent-check:ssh_attack:60:5 --state NEW ${log_params} ${additional}
-    iptables_wrapper --proto tcp ${rule_in_params} ${in_params} --limit recent-set:ssh_attack --state NEW 
+    iptables_wrapper REJECT-WITH icmp-port-unreachable --proto tcp ${chain_in_params} ${in_params} --limit recent-check:ssh_attack:60:5 --state NEW ${log_params} ${additional}
+    iptables_wrapper --proto tcp ${chain_in_params} ${in_params} --limit recent-set:ssh_attack --state NEW 
 
-    iptables_wrapper ACCEPT --proto tcp ${rule_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
-    iptables_wrapper ACCEPT ${rule_out_params} --proto tcp ${out_params} --state ESTABLISHED ${additional}
+    iptables_wrapper ACCEPT --proto tcp ${chain_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
+    iptables_wrapper ACCEPT ${chain_out_params} --proto tcp ${out_params} --state ESTABLISHED ${additional}
 
   elif strcontains "${option}" 'DROP DISABLE BLOCK' --ignorecase; then
 
     ###########################################################
     # Same as ${CMD} service DROP --proto tcp --port 22
     ###########################################################
-    iptables_wrapper "${option}" --proto tcp ${rule_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
-    iptables_wrapper "${option}" --proto tcp ${rule_out_params} ${out_params} --state ESTABLISHED ${additional}
+    iptables_wrapper "${option}" --proto tcp ${chain_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
+    iptables_wrapper "${option}" --proto tcp ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
 
   fi
 
-  if [ -n "${rule}" ]; then
-    iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_params}
-    iptables_wrapper "${rule_out}" --proto tcp --rule OUTPUT ${out_params}
+  if [ -n "${chain}" ]; then
+    iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params}
+    iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params}
   fi
 
   return 0
@@ -5253,7 +5255,7 @@ function handle_ssh_server()
 function handle_web_server()
 {
 
-  local rule=
+  local chain=
 
   local interface=
   local not_interface=
@@ -5289,10 +5291,10 @@ function handle_web_server()
         type=$1
 			;;
 
-      --rule )
+      --chain )
         cursor=$1
 				shift
-        rule=$1
+        chain=$1
 			;;
 
       --interface )
@@ -5362,15 +5364,15 @@ function handle_web_server()
 
 
 
-  # fix rule
-  local rule_in=INPUT
-  local rule_out=OUTPUT
-  if [ -n "${rule}" ]; then
-    if strcontains "${rule}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
-      echo_fatal "Can not use rule with name '${rule}'. "
+  # fix chain
+  local chain_in=INPUT
+  local chain_out=OUTPUT
+  if [ -n "${chain}" ]; then
+    if strcontains "${chain}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
+      echo_fatal "Can not use chain with name '${chain}'. "
     else
-      rule_in="${rule}"_in
-      rule_out="${rule}"_out
+      chain_in="${chain}"_in
+      chain_out="${chain}"_out
     fi
   fi
 
@@ -5409,18 +5411,18 @@ function handle_web_server()
     in_port_params="--port-to ${port}"
     out_port_params="--port-from ${port}"
     in_params="${in_params} ${in_port_params}"
-    out_params="${out_params} --port-from ${port}"
+    out_params="${out_params} ${out_port_params}"
   fi
 
-  #rule
-  # local rule_params=''
-  local rule_in_params=''
-  local rule_out_params=''
-  if [ -n "${rule_in}" ]; then
-    rule_in_params="${rule_in_params} --rule ${rule_in}"
+  # chain
+  # local chain_params=''
+  local chain_in_params=''
+  local chain_out_params=''
+  if [ -n "${chain_in}" ]; then
+    chain_in_params="${chain_in_params} --chain ${chain_in}"
   fi
-  if [ -n "${rule_out}" ]; then
-    rule_out_params="${rule_in_params} --rule ${rule_out}"
+  if [ -n "${chain_out}" ]; then
+    chain_out_params="${chain_out_params} --chain ${chain_out}"
   fi
 
   #log
@@ -5440,21 +5442,21 @@ function handle_web_server()
     # 生存期300秒
     ##################################################
 
-    iptables_wrapper ACCEPT --proto tcp ${rule_in_params} --limit limit-upto:http_dos:1/s:100:srcip:::300000 ${in_params} --state NEW,ESTABLISHED ${additional}
-    iptables_wrapper DROP --proto tcp ${rule_in_params} ${out_params} ${log_params} ${additional}
+    iptables_wrapper ACCEPT --proto tcp ${chain_in_params} --limit limit-upto:http_dos:1/s:100:srcip:::300000 ${in_params} --state NEW,ESTABLISHED ${additional}
+    iptables_wrapper DROP --proto tcp ${chain_in_params} ${out_params} ${log_params} ${additional}
 
-    iptables_wrapper ACCEPT --proto tcp ${rule_out_params} ${in_params} --state ESTABLISHED ${additional}
+    iptables_wrapper ACCEPT --proto tcp ${chain_out_params} ${in_params} --state ESTABLISHED ${additional}
 
   elif strcontains "${option}" 'DROP DISABLE BLOCK' --ignorecase; then
-     iptables_wrapper DROP --proto tcp ${rule_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
-     iptables_wrapper DROP --proto tcp ${rule_out_params} ${out_params} --state ESTABLISHED ${additional}
+     iptables_wrapper DROP --proto tcp ${chain_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
+     iptables_wrapper DROP --proto tcp ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
       
-      # iptables_wrapper DROP --proto tcp --rule INPUT ${in_params} --state NEW ${additional}
+      # iptables_wrapper DROP --proto tcp --chain INPUT ${in_params} --state NEW ${additional}
   fi
 
-  if [ -n "${rule}" ]; then
-    iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_params}
-    iptables_wrapper "${rule_out}" --proto tcp --rule OUTPUT ${out_params}
+  if [ -n "${chain}" ]; then
+    iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params}
+    iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params}
   fi
 
 
@@ -5467,7 +5469,7 @@ function handle_web_server()
 function handle_ftp_server_and_client()
 {
 
-  local rule=
+  local chain=
 
   local interface=
   local not_interface=
@@ -5503,10 +5505,10 @@ function handle_ftp_server_and_client()
         type=$1
 			;;
 
-      --rule )
+      --chain )
         cursor=$1
 				shift
-        rule=$1
+        chain=$1
 			;;
 
       --interface )
@@ -5576,15 +5578,15 @@ function handle_ftp_server_and_client()
 
 
 
-  # fix rule
-  local rule_in=INPUT
-  local rule_out=OUTPUT
-  if [ -n "${rule}" ]; then
-    if strcontains "${rule}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
-      echo_fatal "Can not use rule with name '${rule}'. "
+  # fix chain
+  local chain_in=INPUT
+  local chain_out=OUTPUT
+  if [ -n "${chain}" ]; then
+    if strcontains "${chain}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
+      echo_fatal "Can not use chain with name '${chain}'. "
     else
-      rule_in="${rule}"_in
-      rule_out="${rule}"_out
+      chain_in="${chain}"_in
+      chain_out="${chain}"_out
     fi
   fi
 
@@ -5624,18 +5626,18 @@ function handle_ftp_server_and_client()
     in_port_params="--port-to ${port}"
     out_port_params="--port-from ${port}"
     # in_params="${in_params} ${in_port_params}"
-    # out_params="${out_params} --port-from ${port}"
+    # out_params="${out_params} ${out_port_params}"
   fi
 
-  #rule
-  # local rule_params=''
-  local rule_in_params=''
-  local rule_out_params=''
-  if [ -n "${rule_in}" ]; then
-    rule_in_params="${rule_in_params} --rule ${rule_in}"
+  # chain
+  # local chain_params=''
+  local chain_in_params=''
+  local chain_out_params=''
+  if [ -n "${chain_in}" ]; then
+    chain_in_params="${chain_in_params} --chain ${chain_in}"
   fi
-  if [ -n "${rule_out}" ]; then
-    rule_out_params="${rule_in_params} --rule ${rule_out}"
+  if [ -n "${chain_out}" ]; then
+    chain_out_params="${chain_out_params} --chain ${chain_out}"
   fi
 
   #log
@@ -5650,27 +5652,27 @@ function handle_ftp_server_and_client()
       if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
 
         # Allow FTP connections on port 21 incoming
-        iptables_wrapper ACCEPT --proto tcp --port-to 21 ${rule_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
+        iptables_wrapper ACCEPT --proto tcp --port-to 21 ${chain_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
         # Allow FTP port 20 for active connections incoming
-        iptables_wrapper ACCEPT --proto tcp --port-to 20 ${rule_in_params} ${in_params} --state ESTABLISHED ${additional}
+        iptables_wrapper ACCEPT --proto tcp --port-to 20 ${chain_in_params} ${in_params} --state ESTABLISHED ${additional}
         # Finally allow FTP passive inbound traffic incoming
-        iptables_wrapper ACCEPT --proto tcp ${in_port_params} ${rule_in_params} ${in_params} --state ESTABLISHED,RELATED ${additional}
+        iptables_wrapper ACCEPT --proto tcp ${in_port_params} ${chain_in_params} ${in_params} --state ESTABLISHED,RELATED ${additional}
 
         # Allow FTP connections on port 21 outgoing
-        iptables_wrapper ACCEPT --proto tcp --port-from 21 ${rule_out_params} ${out_params} --state ESTABLISHED ${additional}
+        iptables_wrapper ACCEPT --proto tcp --port-from 21 ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
         # Allow FTP port 20 for active connections outgoing
-        iptables_wrapper ACCEPT --proto tcp --port-from 20 ${rule_out_params} ${out_params} --state ESTABLISHED,RELATED ${additional}
+        iptables_wrapper ACCEPT --proto tcp --port-from 20 ${chain_out_params} ${out_params} --state ESTABLISHED,RELATED ${additional}
         # Finally allow FTP passive inbound traffic outgoing
-        iptables_wrapper ACCEPT --proto tcp ${out_port_params} ${rule_out_params} ${out_params} --state ESTABLISHED ${additional}
+        iptables_wrapper ACCEPT --proto tcp ${out_port_params} ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
 
       elif strcontains "${option}" 'DROP DISABLE BLOCK' --ignorecase; then
 
         # DROP FTP connections on port 21 incoming
-        iptables_wrapper DROP --proto tcp --port-to 21 ${rule_in_params} ${in_params} --state NEW ${additional}
+        iptables_wrapper DROP --proto tcp --port-to 21 ${chain_in_params} ${in_params} --state NEW ${additional}
         # Allow FTP port 20 for active connections outgoing
-        iptables_wrapper DROP --proto tcp --port-from 20 ${rule_out_params} ${out_params} --state RELATED ${additional}
+        iptables_wrapper DROP --proto tcp --port-from 20 ${chain_out_params} ${out_params} --state RELATED ${additional}
         # Finally allow FTP passive inbound traffic incoming
-        iptables_wrapper DROP --proto tcp ${in_port_params} ${rule_in_params} ${in_params} --state RELATED ${additional}
+        iptables_wrapper DROP --proto tcp ${in_port_params} ${chain_in_params} ${in_params} --state RELATED ${additional}
 
       fi
 
@@ -5678,36 +5680,36 @@ function handle_ftp_server_and_client()
     if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
 
       # Allow FTP connections on port 21 incoming
-      iptables_wrapper ACCEPT --proto tcp --port-to 21 ${rule_in_params} ${in_params} --state ESTABLISHED ${additional}
+      iptables_wrapper ACCEPT --proto tcp --port-to 21 ${chain_in_params} ${in_params} --state ESTABLISHED ${additional}
       # Allow FTP port 20 for active connections incoming
-      iptables_wrapper ACCEPT --proto tcp --port-to 20 ${rule_in_params} ${in_params} --state ESTABLISHED,RELATED ${additional}
+      iptables_wrapper ACCEPT --proto tcp --port-to 20 ${chain_in_params} ${in_params} --state ESTABLISHED,RELATED ${additional}
       # Finally allow FTP passive inbound traffic incoming
-      iptables_wrapper ACCEPT --proto tcp ${in_port_params} ${rule_in_params} ${in_params} --state ESTABLISHED ${additional}
+      iptables_wrapper ACCEPT --proto tcp ${in_port_params} ${chain_in_params} ${in_params} --state ESTABLISHED ${additional}
 
       # Allow FTP connections on port 21 outgoing
-      iptables_wrapper ACCEPT --proto tcp --port-from 21 ${rule_out_params} ${out_params} --state NEW,ESTABLISHED ${additional}
+      iptables_wrapper ACCEPT --proto tcp --port-from 21 ${chain_out_params} ${out_params} --state NEW,ESTABLISHED ${additional}
       # Allow FTP port 20 for active connections outgoing
-      iptables_wrapper ACCEPT --proto tcp --port-from 20 ${rule_out_params} ${out_params} --state ESTABLISHED ${additional}
+      iptables_wrapper ACCEPT --proto tcp --port-from 20 ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
       # Finally allow FTP passive inbound traffic outgoing
-      iptables_wrapper ACCEPT --proto tcp ${out_port_params} ${rule_out_params} ${out_params} --state ESTABLISHED,RELATED ${additional}
+      iptables_wrapper ACCEPT --proto tcp ${out_port_params} ${chain_out_params} ${out_params} --state ESTABLISHED,RELATED ${additional}
 
     elif strcontains "${option}" 'DROP DISABLE BLOCK' --ignorecase; then
 
       # Allow FTP connections on port 21 outgoing
-      iptables_wrapper DROP --proto tcp --port-from 21 ${rule_out_params} ${out_params} --state NEW ${additional}
+      iptables_wrapper DROP --proto tcp --port-from 21 ${chain_out_params} ${out_params} --state NEW ${additional}
       # Allow FTP port 20 for active connections incoming
-      iptables_wrapper DROP --proto tcp --port-to 20 ${rule_in_params} ${in_params} --state RELATED ${additional}
+      iptables_wrapper DROP --proto tcp --port-to 20 ${chain_in_params} ${in_params} --state RELATED ${additional}
       # Finally allow FTP passive inbound traffic outgoing
-      iptables_wrapper DROP --proto tcp ${out_port_params} ${rule_out_params} ${out_params} --state RELATED ${additional}
+      iptables_wrapper DROP --proto tcp ${out_port_params} ${chain_out_params} ${out_params} --state RELATED ${additional}
 
     fi
   fi
 
-  if [ -n "${rule}" ]; then
-    iptables_wrapper "${rule_in}" --proto tcp --rule INPUT --port-to 20,21 ${in_params}
-    iptables_wrapper "${rule_in}" --proto tcp --rule INPUT ${in_port_params} ${in_params}
-    iptables_wrapper "${rule_out}" --proto tcp --rule OUTPUT --port-from 20,21 ${out_params}
-    iptables_wrapper "${rule_out}" --proto tcp --rule OUTPUT ${out_port_params} ${out_params}
+  if [ -n "${chain}" ]; then
+    iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-to 20,21 ${in_params}
+    iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_port_params} ${in_params}
+    iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-from 20,21 ${out_params}
+    iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_port_params} ${out_params}
   fi
 
 
