@@ -1371,18 +1371,19 @@ cat <<EOF
   clear:    Clear all rules and custom chain.
   save:     Save firewall change on next startup.
   default:  Set or display the default policy to filter table
+  config:   Read, write or remove the config file on global or specific domain.
+  list:     List rule information with the selected chain.
   chain:    Create ,search or display the custom chain.
-  filter:   Filter IPV4 package.
   nat:      SNAT or DNAT IPV4 package
+  filter:   Filter IPV4 package.
   incoming: For IPV4 incoming package filtering
   outgoing: For IPV4 outgoing filtering
   server:   For 'New' connection on incoming and 'Established/Relate' connection on outgoing.
   client:   For 'New' connection on outgoing and 'Established/Relate' connection on incoming.
   loopback: Fast command for loopback interface.
-  config:   Read, write or remove the config file on specific domain.
 
   Other options
-  Use '${CMD} --help' show all help information
+  Use '${CMD} --help' show this help information
   
 EOF
 }
