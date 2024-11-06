@@ -512,6 +512,22 @@ function ip_from_inter()
   echo "${Local_Address}"
 }
 
+function show_wellknown_port()
+{
+  local times=0
+  for protocol in ${!DEFAULT_PORT[@]}; 
+  do
+    (( times=times+1 ))
+    printf "%8s:%-20s    " ${protocol} ${DEFAULT_PORT[${protocol}]}
+
+    if [ "${times}" -eq 4 ]; then
+      echo ""
+      (( times=0 ))
+    fi
+
+  done
+}
+
 function strcontains()
 {
 	local str="$1"
@@ -1396,6 +1412,9 @@ cat <<EOF
   
 Handler:
 $(iptables_handler list --retraction 2)
+
+Known ports:
+$(show_wellknown_port)
 EOF
 }
 
@@ -1735,6 +1754,10 @@ function usage_wall()
 
 Handler:
 $(iptables_handler list --retraction 2)
+
+Known ports:
+$(show_wellknown_port)
+
 EOF
 }
 
