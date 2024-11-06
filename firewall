@@ -4188,6 +4188,7 @@ function iptables_list()
 			;;
 
       --info-level )
+        shift
         info_level=$1
       ;;
 
