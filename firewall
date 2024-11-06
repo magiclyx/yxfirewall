@@ -650,6 +650,14 @@ function search_handler_info()
 	fi
 }
 
+function list_handler_protocol()
+{
+  for protocol in ${!PROTOCOL_HANDLER_MAP[@]}; 
+  do
+    echo ${protocol}
+  done
+}
+
 
 ####################################################################################################
 # Logger
@@ -1381,10 +1389,13 @@ cat <<EOF
   server:   For 'New' connection on incoming and 'Established/Relate' connection on outgoing.
   client:   For 'New' connection on outgoing and 'Established/Relate' connection on incoming.
   loopback: Fast command for loopback interface.
+  handler:  Manager handler command.
 
   Other options
   Use '${CMD} --help' show this help information
   
+Handler:
+$(iptables_handler list --retraction 2)
 EOF
 }
 
@@ -1721,6 +1732,9 @@ function usage_wall()
 
   Other options
   Use '${CMD} --help' show all help information
+
+Handler:
+$(iptables_handler list --retraction 2)
 EOF
 }
 
@@ -1821,6 +1835,36 @@ function usage_list()
 
   --chain-io   When indicate a chain 'name', --chain-io display both 'name_in' and 'name_out' as chain name at same time
   --reference  When indicate a chain 'name', --reference display all reference information at the end of chain.
+
+
+  --info-level     Command output level. 
+                   The specific level can be one of 'silent', 'fatal', 'error', 'verbose',
+                    or a number greater than 0.
+
+                   You can use ${CMD} config to get or set it as the global value. 
+                     ${CMD} config --write --key info.level --val debug
+                     ${CMD} config --read --key info.level
+
+                     Use '${CMD} config --help' to see more information.
+
+  Other options
+  Use '${CMD} --help' show all help information 
+EOF
+}
+
+
+function usage_handler()
+{
+cat <<EOF
+  usage: ${CMD} handler llist [--protocol] 
+  List handler information in the selected protocol. If no protocol is selected, a handler-list will display
+
+  usage: ${CMD} list <--help|-h> 
+  For this help information.
+
+
+  The following options are allowed:
+  --protocol       specifiec a protocol to show detail handler information.
 
 
   --info-level     Command output level. 
@@ -3828,7 +3872,7 @@ function iptables_chain()
     fi
 
     if [ -z ${option} ]; then
-      echo_fatal 'iptables port need at least one params [DROP , ACCEPT]'
+      echo_fatal 'iptables port need at least one params [Create , Exist, Remove, List]'
     fi
 
     if [[ "${option}" == 'CREATE' ]]; then
@@ -4248,6 +4292,99 @@ function iptables_list()
     fi
   fi
 
+}
+
+function iptables_handler()
+{
+  # local handler=
+  local retraction=
+
+  local show_help=false
+
+  local option=$1
+  if strcontains "${option}" 'list' --ignorecase; then
+    option="LIST"
+    shift
+  else
+    option=
+  fi
+
+  while [ $# -gt 0 ]; do
+		case $1 in
+
+      --retraction )
+        shift
+        retraction=$1
+      ;;
+
+      --info-level )
+        shift
+        info_level=$1
+      ;;
+
+      --help )
+        show_help=true
+      ;;
+
+			*)
+        additional="${additional} $1"
+      ;;
+		esac
+		shift
+	done
+
+
+  if ${show_help}; then
+    usage_handler
+    exit 0
+  else
+
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
+    fi
+
+    if [ -z ${option} ]; then
+      echo_fatal 'iptables port need at least one params [Regist, Unregist, List]'
+    fi
+
+
+    # echo "ff"
+    if [[ "${option}" == 'LIST' ]]; then
+      
+      local indent=''
+      if [ -n "${retraction}" ]; then
+        local v=$(printf "%-${retraction}s" ' ')
+        indent=$(echo "${v// /' '}")
+      fi
+
+      printf "%s%-10s  %-15s  %-6s  %-6s  %-30s\n" "${indent}" 'Name' 'Protocol' 'Server' 'Client' 'Description' 
+      for protocol in $(list_handler_protocol); do
+        # echo ${protocol}
+        local name=$(search_handler_info "${protocol}" "name")
+        local desc=$(search_handler_info "${protocol}" "desc")
+        # local port=$(search_handler_info "${protocol}" "port")
+        local real_proto=$(search_handler_info "${protocol}" "protocol")
+        local srv_fun=$(search_handler_info "${protocol}" "server")
+        local clt_fun=$(search_handler_info "${protocol}" "client")
+
+        local srv_flag="NO"
+        if [ -n "${srv_fun}" ]; then
+          srv_flag="YES"
+        fi
+
+        local clt_flag="NO"
+        if [ -n "${clt_fun}" ]; then
+          clt_flag="YES"
+        fi
+
+        printf "%s%-10s  %-15s  %-6s  %-6s  %-30s\n" "${indent}" "${name}" "${protocol}" "${srv_flag}" "${clt_flag}" "${desc}"
+
+      done
+
+    fi
+
+
+  fi
 }
 
 ####################################################################################################
@@ -6014,6 +6151,8 @@ function pkg_handler()
 {
   local -A tcp_map
   tcp_map=(
+    [name]='badpkg'
+    [desc]='Invalid package:package state is Invalidate'
     [server]='handle_package_server'
   )
 
@@ -6024,6 +6163,8 @@ function synflood_handler()
 {
   local -A synflood_map
   synflood_map=(
+    [name]='synflood'
+    [desc]='Syn-flood attack:it limit syn package speed rate.'
     [server]='handle_synflood_server'
   )
 
@@ -6034,6 +6175,8 @@ function stealscan_handler()
 {
   local -A stealscan_map
   stealscan_map=(
+    [name]='stealscan'
+    [desc]='Stealth scan:tcp package with unnormal flags'
     [server]='handle_stealscan_server'
   )
 
@@ -6044,6 +6187,8 @@ function broadcast_handler()
 {
   local -A broadcast_map
   broadcast_map=(
+    [name]='broadcast'
+    [desc]='broadcast:all broadcast packages'
     [server]='handle_broadcast_server'
   )
 
@@ -6054,6 +6199,8 @@ function icmp_handler()
 {
   local -A icmp_map
   icmp_map=(
+    [name]='icmp'
+    [desc]='icmp package'
     [server]='handle_icmp_server_and_client'
     [client]='handle_icmp_server_and_client'
   )
@@ -6065,6 +6212,8 @@ function ssh_handler()
 {
 	local -A ssh_map
 	ssh_map=(
+    [name]='ssh'
+    [desc]='ssh package'
 		[port]="${DEFAULT_PORT[SSH]}"
     [protocol]="tcp"
 		[server]="handle_ssh_server"
@@ -6077,6 +6226,8 @@ function web_handler()
 {
 	local -A http_map
 	http_map=(
+    [name]='web'
+    [desc]='web handler: for http and https package'
     [protocol]="tcp"
 		[server]="handle_web_server"
 	)
@@ -6088,6 +6239,8 @@ function ftp_handler()
 {
 	local -A ftp_map
 	ftp_map=(
+    [name]='ftp'
+    [desc]='ftp package'
     [protocol]="tcp"
 		[server]="handle_ftp_server_and_client"
 		[client]="handle_ftp_server_and_client"
@@ -6175,6 +6328,8 @@ elif strcontains "${sub_cmd}" 'loopback' --ignorecase; then
   iptables_loopback $@
 elif strcontains "${sub_cmd}" 'config' --ignorecase; then
   iptables_config $@
+elif strcontains "${sub_cmd}" 'handler' --ignorecase; then
+  iptables_handler $@
 elif [[ ${sub_cmd} == "--help" ]] || [[ ${sub_cmd} == '-h' ]]; then
   usage
   exit 0
