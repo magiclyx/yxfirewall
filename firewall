@@ -1852,7 +1852,6 @@ function usage_list()
 
 
   The following options are allowed:
-  --chain      indicate a name of the chain. if not give a chain name, command will display all chains information.
 
   --table      This option specifies the packet matching table which the command should operate on.
   --numeric    Numeric output. IP addresses and port numbers will be printed in numeric format.
