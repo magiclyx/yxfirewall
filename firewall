@@ -4599,6 +4599,14 @@ function handle_package_server()
 
   if strcontains "${option}" 'Drop Disable Block' --ignorecase; then
     echo_verbose 'Add bad-package rule...'
+    # low-port on tdcp
+    iptables_wrapper ${option} --proto tcp --port-from 0:19 ${chain_in_params}
+    iptables_wrapper ${option} --proto tcp --port-to 0:19 ${chain_in_params}
+    # low-port on udp
+    iptables_wrapper ${option} --proto udp --port-to 0:21 ${chain_in_params}
+    iptables_wrapper ${option} --proto udp --port-to 0:21 ${chain_in_params}
+
+    # invalid package
     iptables_wrapper ${option} --proto ALL ${chain_in_params} ${in_params} --state INVALID ${log_params} ${additional}
     iptables_wrapper RETURN --proto ALL ${chain_in_params} ${in_params}
     if [ -n "${chain}" ]; then
