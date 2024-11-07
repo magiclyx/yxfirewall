@@ -403,6 +403,82 @@ function write_cfg_key()
 	fi	
 }
 
+
+####################################################################################################
+# Other sysctl operation
+####################################################################################################
+function yx_sysctl_change()
+{
+  local file=
+	local key=
+	local val=
+  local refresh=false
+
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--file )
+			shift
+			file=$1
+    ;;
+
+		--key )
+			shift
+			key=$1
+    ;;
+
+		--val )
+			shift
+			val=$1
+    ;;
+
+    --refresh )
+			refresh=true
+    ;;
+
+    *)
+			echo_fatal "Invalid optional ${1}"
+    ;;
+		esac
+		shift
+	done
+
+  if [ -z "${file}" ]; then
+    file="${SYSCFG_PATH}"
+  fi
+
+  if [ -z "${key}" ]; then
+    echo_fatal "Empty value on sysctl config key."
+  fi
+
+  if [ -z "${val}" ]; then
+    echo_fatal "Empty value on sysctl config val."
+  fi
+
+
+  # write config
+  echo_verbose "Set ${key} = ${val} ..."
+  write_cfg_key --file "${file}" --key "${key}" --val "${val}"
+
+
+  #如果需要，立即应用更改
+  if ${refresh}; then
+    #:echo_cmd
+    echo_verbose 'Make system configure enable...'
+    echo_verbose "${SYSCTL} -p > /dev/null"
+    "${SYSCTL}" -p > /dev/null
+  fi
+
+  # verify
+  local test_val=$(read_cfg_key --file "${file}" --key "${key}")
+  if [[ -n "${test_val}" ]] && [[ "${test_val}" == "${val}" ]]; then
+    return 0
+  else
+    return 1
+  fi
+
+}
+
+
 ####################################################################################################
 # Other YXLib
 ####################################################################################################
@@ -428,45 +504,45 @@ function yx_str_checkfmt()
 	return 0
 }
 
-function ip_forward_v4()
-{
-  local option=$1
-  shift
-  if [ -z ${option} ]; then
-    echo_fatal 'iptables_default need at least one params [DROP , ACCEPT]'
-  else
-    if strcontains "${option}" 'Enable Accept Allow 1' --ignorecase; then
-      option='1'
-    else
-      option='0'
-    fi
-  fi
+# function ip_forward_v4()
+# {
+#   local option=$1
+#   shift
+#   if [ -z ${option} ]; then
+#     echo_fatal 'iptables_default need at least one params [DROP , ACCEPT]'
+#   else
+#     if strcontains "${option}" 'Enable Accept Allow 1' --ignorecase; then
+#       option='1'
+#     else
+#       option='0'
+#     fi
+#   fi
 
-  # 使用sed更改sysctl.conf中的ip_forward值
-  #:echo_cmd
-  echo_verbose 'Set ipv4.ip_forward = 1 ...'
-  echo_verbose "sed -i \"s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g\" \"${SYSCFG_PATH}\""
-  sed -i "s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g" "${SYSCFG_PATH}"
+#   # 使用sed更改sysctl.conf中的ip_forward值
+#   #:echo_cmd
+#   echo_verbose 'Set ipv4.ip_forward = 1 ...'
+#   echo_verbose "sed -i \"s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g\" \"${SYSCFG_PATH}\""
+#   sed -i "s/^#\? *net.ipv4.ip_forward.*/net.ipv4.ip_forward = ${option}/g" "${SYSCFG_PATH}"
  
-  #如果需要，立即应用更改
-  #:echo_cmd
-  echo_verbose 'Make system configure enable...'
-  echo_verbose "${SYSCTL} -p > /dev/null"
-  "${SYSCTL}" -p > /dev/null
+#   #如果需要，立即应用更改
+#   #:echo_cmd
+#   echo_verbose 'Make system configure enable...'
+#   echo_verbose "${SYSCTL} -p > /dev/null"
+#   "${SYSCTL}" -p > /dev/null
 
-  local result=0
-  if grep -Eq "^ *net.ipv4.ip_forward" "${SYSCFG_PATH}"; then
-    result=$(grep -E "^ *net.ipv4.ip_forward" "${SYSCFG_PATH}" | sed -e 's/^[^#=]*= *//g' )
-  else
-    result=0
-  fi
+#   local result=0
+#   if grep -Eq "^ *net.ipv4.ip_forward" "${SYSCFG_PATH}"; then
+#     result=$(grep -E "^ *net.ipv4.ip_forward" "${SYSCFG_PATH}" | sed -e 's/^[^#=]*= *//g' )
+#   else
+#     result=0
+#   fi
 
-  if [[ ${result} == 1 ]]; then
-    return 0
-  else
-    return 1
-  fi
-}
+#   if [[ ${result} == 1 ]]; then
+#     return 0
+#   else
+#     return 1
+#   fi
+# }
 
 function ip_from_inter()
 {
@@ -3758,7 +3834,8 @@ function iptables_nat()
 
     # set net.ipv4.ip_forward=1
     #echo "IP forwarding has been set to '1'"
-    if ! ip_forward_v4 enable; then
+    if ! yx_sysctl_change --refresh --key 'net.ipv4.ip_forward' --val 1 --refresh; then
+    # if ! ip_forward_v4 enable; then
       echo_fatal "failed to change net.ipv4.ip_forward item to '1'"
     fi
 
@@ -4808,7 +4885,26 @@ function handle_synflood_server()
     if [ -n "${chain}" ]; then
       iptables_wrapper "${chain_in}" --proto tcp --syn --chain INPUT ${in_params} ${additional}
     fi
-  else
+
+    # reduce retry times to 3 of syn and syn-ack packagte (default is 5)
+    if ! yx_sysctl_change --refresh --key 'net.ipv4.tcp_synack_retries' --val 3; then
+      echo_fatal "failed to change net.ipv4.tcp_synack_retries item to '3'"
+    fi
+    if ! yx_sysctl_change --refresh --key 'net.ipv4.tcp_syn_retries' --val 3; then
+      echo_fatal "failed to change net.ipv4.tcp_syn_retries item to '3'"
+    fi
+
+    # enable syncookies (default is 0)
+    if ! yx_sysctl_change --refresh --key 'net.ipv4.tcp_syncookies' --val 1; then
+      echo_fatal "failed to change net.ipv4.tcp_syncookies item to '1'"
+    fi
+
+    # expand length of backlog queue (default is 1024)
+    if ! yx_sysctl_change --refresh --key 'net.ipv4.tcp_max_syn_backlog' --val 2048; then
+      echo_fatal "failed to change net.ipv4.tcp_syncookies item to '2048'"
+    fi
+
+  elif strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
     # Allow 不需要处理
     :
   fi
