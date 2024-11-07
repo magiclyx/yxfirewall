@@ -5014,16 +5014,112 @@ function handle_stealscan_server()
     # 如果不是这样的话,很可能表示这是一个扫描动作,这些有 
     # NEW 状态的包会被丢弃
     #
+    # URG ACK PSH RST SYN FIN
 
     echo_verbose 'Add steal-scan rule...'
-    iptables_wrapper DROP --proto tcp ! --syn ${chain_in_params} ${in_params} --state NEW ${log_params} ${additional}
+    # iptables_wrapper DROP --proto tcp ! --syn ${chain_in_params} ${in_params} --state NEW ${log_params} ${additional}
+    # iptables_wrapper DROP --proto tcp --proto-flag ALL NONE ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # iptables_wrapper DROP --proto tcp --proto-flag ALL ALL ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # iptables_wrapper DROP --proto tcp --proto-flag ALL FIN,URG,PSH ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # iptables_wrapper DROP --proto tcp --proto-flag ALL SYN,RST,ACK,FIN,URG ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # iptables_wrapper DROP --proto tcp --proto-flag SYN,RST SYN,RST ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # iptables_wrapper DROP --proto tcp --proto-flag SYN,FIN SYN,FIN ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # iptables_wrapper RETURN ${chain_in_params} ${in_params}
+
+
+
+
+    # 010000(A) - legal
+    # iptables_wrapper RETURN --proto tcp --proto-flag ALL ACK ${chain_in_params} ${in_params} --state ESTABLISHED ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag ALL ACK ${chain_in_params} ${in_params} --state NEW,RELATED ${log_params} ${additional}
+    # 011000(PA) - legal
+    # iptables_wrapper RETURN --proto tcp --proto-flag ALL PSH,ACK ${chain_in_params} ${in_params} --state ESTABLISHED ${log_params} ${additional}
+    #Occasionally iptables misclassifies as new
+    # iptables_wrapper RETURN --proto tcp --proto-flag ALL PSH,ACK ${chain_in_params} ${in_params} --state NEW ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag ALL PSH,ACK ${chain_in_params} ${in_params} --state RELATED ${log_params} ${additional}
+    # 000000(NULL) - block(confirmed)
     iptables_wrapper DROP --proto tcp --proto-flag ALL NONE ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # 111111(XMAS) - block
     iptables_wrapper DROP --proto tcp --proto-flag ALL ALL ${chain_in_params} ${in_params} ${log_params} ${additional}
-    iptables_wrapper DROP --proto tcp --proto-flag ALL FIN,URG,PSH ${chain_in_params} ${in_params} ${log_params} ${additional}
-    iptables_wrapper DROP --proto tcp --proto-flag ALL SYN,RST,ACK,FIN,URG ${chain_in_params} ${in_params} ${log_params} ${additional}
-    iptables_wrapper DROP --proto tcp --proto-flag SYN,RST SYN,RST ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # ????11(SF) - block(confirmed)
     iptables_wrapper DROP --proto tcp --proto-flag SYN,FIN SYN,FIN ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # ???11?(SR) - block(confirmed)
+    iptables_wrapper DROP --proto tcp --proto-flag SYN,RST SYN,RST ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # ???1?1(RF) - block(confirmed)
+    iptables_wrapper DROP --proto tcp --proto-flag RST,FIN RST,FIN ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # 1???1?(SU) - block(no payload on syn, cannot have urg data)
+    iptables_wrapper DROP --proto tcp --proto-flag SYN,URG SYN,URG ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # 001010(SP) - block(no payload on syn)
+    iptables_wrapper DROP --proto tcp --proto-flag ALL SYN,PSH ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # 011010(SAP) - block(no payload on syn/ack)
+    iptables_wrapper DROP --proto tcp --proto-flag ALL SYN,ACK,PSH ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # ?0???1(F!A) - block(confirmed FIN but no ACK)
+    iptables_wrapper DROP --proto tcp --proto-flag ACK,FIN FIN ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # ??0??1(P!A) - block(confirmed PSH but no ACK)
+    iptables_wrapper DROP --proto tcp --proto-flag ACK,PSH PSH ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # 0????1(U!A) - block(confirmed URG but no ACK)
+    iptables_wrapper DROP --proto tcp --proto-flag ACK,URG URG ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # 000100
+    # RST only?  I get them from the razor servers, and gkrellm shipped a few back to noaa.gov after getting weather.
+    # iptables_wrapper RETURN --proto tcp --proto-flag ALL RST ${chain_in_params} ${in_params} --state ESTABLISHED ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag ALL RST ${chain_in_params} ${in_params} --state NEW,RELATED ${log_params} ${additional}
+    # ?0??0?(!S!A) - block(neither SYN nor ACK)
+    iptables_wrapper DROP --proto tcp --proto-flag SYN,ACK NONE ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # 000010(S) - legal
+    #Normal sync's
+    # iptables_wrapper RETURN --proto tcp --proto-flag ALL SYN ${chain_in_params} ${in_params} --state NEW ${log_params} ${additional} #Normal sync's
+    #Opening syn of ftp data
+    # iptables_wrapper RETURN --proto tcp --proto-flag ALL SYN ${chain_in_params} ${in_params} --state RELATED ${log_params} ${additional} #Opening syn of ftp data
+    iptables_wrapper DROP --proto tcp --proto-flag ALL SYN ${chain_in_params} ${in_params} --state ESTABLISHED ${log_params} ${additional}
+    # 010010(SA) - legal
+    # iptables_wrapper RETURN --proto tcp --proto-flag ALL SYN,ACK ${chain_in_params} ${in_params} --state ESTABLISHED ${log_params} ${additional}
+    #Common backscatter
+    iptables_wrapper DROP --proto tcp --proto-flag ALL SYN,ACK ${chain_in_params} ${in_params} --state NEW,RELATED ${log_params} ${additional}
+    # 010001(FA) - legal
+    # iptables_wrapper RETURN --proto tcp --proto-flag ALL FIN,ACK ${chain_in_params} ${in_params} --state ESTABLISHED ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag ALL FIN,ACK ${chain_in_params} ${in_params} --state NEW,RELATED ${log_params} ${additional}
+    # 010100(RA) - legal
+    # iptables_wrapper RETURN --proto tcp --proto-flag ALL RST,ACK ${chain_in_params} ${in_params} --state ESTABLISHED ${log_params} ${additional}
+    #Common backscatter.  Occasionally iptables misclassifies as new
+    # iptables_wrapper RETURN --proto tcp --proto-flag ALL RST,ACK ${chain_in_params} ${in_params} --state NEW ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag ALL RST,ACK ${chain_in_params} ${in_params} --state RELATED ${log_params} ${additional}
+    # 111000(APU) - legal(ctrl-c on telnet)
+    # iptables_wrapper RETURN --proto tcp --proto-flag ALL ACK,PSH,RST ${chain_in_params} ${in_params} --state ESTABLISHED ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag ALL ACK,PSH,RST ${chain_in_params} ${in_params} --state NEW,RELATED ${log_params} ${additional}
+    # 011001(FPA) - RETURN(FIN implies a push, but we're seeing this on legit traffic)
+    # iptables_wrapper RETURN --proto tcp --proto-flag ALL FIN,PSH,ACK ${chain_in_params} ${in_params} --state ESTABLISHED ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp --proto-flag ALL FIN,PSH,ACK ${chain_in_params} ${in_params} --state NEW,RELATED ${log_params} ${additional}
+
+
+    ####################################################################################################
+    # 应该可以 block的
+    ####################################################################################################
+    # 101001(FUP) - block?
+    iptables_wrapper DROP --proto tcp --proto-flag ALL FIN,URG,PSH ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # 110111(SRAFU) - block?
+    iptables_wrapper DROP --proto tcp --proto-flag ALL SYN,RST,ACK,FIN,URG ${chain_in_params} ${in_params} ${log_params} ${additional}
+
+    ####################################################################################################
+    # 不确定, 保守使用
+    ####################################################################################################
+    # 011100(RAP) - block?
+    iptables_wrapper DROP --proto tcp --proto-flag ALL RST,ACK,PSH ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # 110100(RAU) - block?
+    iptables_wrapper DROP --proto tcp --proto-flag ALL RST,ACK,URG ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # 111100(RAPU) - block?
+    iptables_wrapper DROP --proto tcp --proto-flag ALL RST,ACK,PSH,URG ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # 111001(FPAU) - block?(FIN implies a push)
+    iptables_wrapper DROP --proto tcp --proto-flag ALL FIN,PSH,ACK,URG ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # 110000(AU) - block?(APU more likely)
+    iptables_wrapper DROP --proto tcp --proto-flag ALL ACK,URG ${chain_in_params} ${in_params} ${log_params} ${additional}
+    # 110001(AUF) - block?
+    iptables_wrapper DROP --proto tcp --proto-flag ALL ACK,URG,FIN ${chain_in_params} ${in_params} ${log_params} ${additional}
+
+    ####################################################################################################
+    # Return
+    ####################################################################################################
     iptables_wrapper RETURN ${chain_in_params} ${in_params}
+
 
 
     # iptables_wrapper ${option} --proto ALL ${chain_in_params} ${in_params} --state INVALID ${log_params} ${additional}
