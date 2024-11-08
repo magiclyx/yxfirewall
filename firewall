@@ -4,6 +4,7 @@ CMD=$(basename $0)
 # LAN='enp0s8'
 # WAN='enp0s17'
 SYSCFG_PATH='/etc/sysctl.conf'
+IPTABLE_CONFIG_PATH='/etc/modprobe.d/iptables.conf'
 FILENAME_NAT='iptables'
 FILENAME_NAT6='iptables6'
 
@@ -32,6 +33,8 @@ IPTABLES_RESTORE='/usr/sbin/iptables-restore'
 IP6TABLES_RESTORE='/usr/sbin/ip6tables-restore'
 
 SYSCTL='/usr/sbin/sysctl'
+MODPROBE='/usr/sbin/modprobe'
+LSMOD='/usr/sbin/lsmod'
 
 
 
@@ -66,7 +69,7 @@ DEFAULT_PORT=(
 
 
 ####################################################################################################
-# OS-TYPE
+# OS
 ####################################################################################################
 
 function os_type()
@@ -155,6 +158,165 @@ function linux_type()
   echo "${release}"
 }
 
+
+
+function yx_size_to_bytes()
+{
+  local memstr=$1
+
+  local memsize=
+  if [ -n "${memstr}" ]; then
+    if echo "${memstr}" | grep -Eqi "^[[:space:]]*[1-9]+[0-9]*[[:space:]]*(GB|G)[[:space:]]*$"; then
+      local num=$(echo "${memstr}" | grep -Eo '[1-9]+[0-9]*')
+      ((memsize=num*1024*1024*1024))
+    elif echo "${memstr}" | grep -Eqi "^[[:space:]]*[1-9]+[0-9]*[[:space:]]*(MB|M)[[:space:]]*$"; then
+      local num=$(echo "${memstr}" | grep -Eo '[1-9]+[0-9]*')
+      ((memsize=num*1024*1024))
+    elif echo "${memstr}" | grep -Eqi "^[[:space:]]*[1-9]+[0-9]*[[:space:]]*(KB|K)[[:space:]]*$"; then
+      local num=$(echo "${memstr}" | grep -Eo '[1-9]+[0-9]*')
+      ((memsize=num*1024))
+    elif echo "${memstr}" | grep -Eqi "^[[:space:]]*[1-9]+[0-9]*[[:space:]]*(B|BYTE)?[[:space:]]*$"; then
+      memsize=$(echo "${memstr}" | grep -Eo '[1-9]+[0-9]*')
+    fi
+
+
+    if [[ -n "${memsize}" ]] && [[ ${memsize}=~^[1-9]+[0-9]*$ ]]; then
+      echo "${memsize}"
+      return 0
+    else
+      return 1
+    fi
+    
+  fi
+}
+
+
+function yx_estimate_conntrack_max()
+{
+  
+  # local memstr=$1
+  
+  # function _valid_memsize()
+  # {
+  #   local memsize=$1
+    
+  #   if [[ -n "${memsize}" ]] && [[ ${memsize}=~^[1-9]+[0-9]*$ ]]; then
+  #     return 0
+  #   else
+  #     return 1
+  #   fi
+  # }
+  
+  # local memsize=
+  # if [ -n "${memstr}" ]; then
+  #   if echo "${memstr}" | grep -Eqi "^[[:space:]]*[1-9]+[0-9]*[[:space:]]*(GB|G)[[:space:]]*$"; then
+  #     local num=$(echo "${memstr}" | grep -Eo '[1-9]+[0-9]*')
+  #     ((memsize=num*1024*1024*1024))
+  #   elif echo "${memstr}" | grep -Eqi "^[[:space:]]*[1-9]+[0-9]*[[:space:]]*(MB|M)[[:space:]]*$"; then
+  #     local num=$(echo "${memstr}" | grep -Eo '[1-9]+[0-9]*')
+  #     ((memsize=num*1024*1024))
+  #   elif echo "${memstr}" | grep -Eqi "^[[:space:]]*[1-9]+[0-9]*[[:space:]]*(KB|K)[[:space:]]*$"; then
+  #     local num=$(echo "${memstr}" | grep -Eo '[1-9]+[0-9]*')
+  #     ((memsize=num*1024))
+  #   elif echo "${memstr}" | grep -Eqi "^[[:space:]]*[1-9]+[0-9]*[[:space:]]*(B|BYTE)?[[:space:]]*$"; then
+  #     memsize=$(echo "${memstr}" | grep -Eo '[1-9]+[0-9]*')
+  #   fi
+    
+  #   if ! _valid_memsize "${memsize}"; then
+  #     echo_fatal "Invalid memsize:${memstr}"
+  #   fi
+  # fi
+  
+  
+  # if ! _valid_memsize "${memsize}"; then
+  #   local mem_kb=
+  #   if which free > /dev/null; then
+  #     mem_kb=$(free | grep -i "mem" | awk '{print $2}')
+  #     ((memsize=mem_kb*1024))
+  #   fi
+  # fi
+  
+  # if ! _valid_memsize "${memsize}"; then
+  #   if [ -f /proc/meminfo ]; then
+  #     mem_kb=$(cat /proc/meminfo | head -n 1 | awk '{print $2}')
+  #     ((memsize=mem_kb*1024))
+  #   fi
+  # fi
+
+  
+  # memory size in bytes
+  local memsize=$(yx_size_to_bytes "${1}")
+
+  if [[ -n "${memsize}" ]] && [[ ${memsize}=~^[1-9]+[0-9]*$ ]]; then
+  # if _valid_memsize "${memsize}"; then
+    local arch=
+    if [[ $(uname -m)=='x86_64' ]]; then
+      arch=64
+    else
+      arch=32
+    fi
+    
+    if [[ -n "${memsize}" ]] && [[ -n "${arch}" ]]; then
+      # CONNTRACK_MAX=RAMSIZE / 16384 / (ARCH/32)
+      local arch_params=$((arch/32))
+      local conntrack_max=$((memsize/16384/arch_params))
+      if [ ${conntrack_max} -lt 128 ]; then
+        # 一般默认 CONNTRACK_MAX 不会低于 128
+        conntrack_max=128
+      fi
+      
+      echo "${conntrack_max}"
+      return 0
+    fi
+  fi
+  
+  return 1
+}
+
+
+function yx_mem_total()
+{
+  function _valid_memsize()
+  {
+    local memsize=$1
+    
+    if [[ -n "${memsize}" ]] && [[ ${memsize}=~^[1-9]+[0-9]*$ ]]; then
+      return 0
+    else
+      return 1
+    fi
+  }
+
+  local memsize=
+
+  if [[ $(os_type) == 'osx' ]]; then
+    local mem_mb=$(top -l 1 | head -n 10 | grep PhysMem | awk '{print $2}')
+    memsize=$(yx_size_to_bytes "${mem_mb}")
+  else
+      if ! _valid_memsize "${memsize}"; then
+      local mem_kb=
+      if which free > /dev/null; then
+        mem_kb=$(free | grep -i "mem" | awk '{print $2}')
+        ((memsize=mem_kb*1024))
+      fi
+    fi
+    
+    if ! _valid_memsize "${memsize}"; then
+      if [ -f /proc/meminfo ]; then
+        mem_kb=$(cat /proc/meminfo | head -n 1 | awk '{print $2}')
+        ((memsize=mem_kb*1024))
+      fi
+    fi
+  fi
+
+  if _valid_memsize "${memsize}"; then
+    echo "${memsize}"
+    return 0
+  else
+    return 1
+  fi
+}
+
 ####################################################################################################
 # configuration
 ####################################################################################################
@@ -168,7 +330,7 @@ function _grep_escape() {
 }
 
 
-function has_cfg_haskey()
+function yx_has_config()
 {
 
 	local file=
@@ -207,7 +369,7 @@ function has_cfg_haskey()
 	test -f "${file}" && grep -Eq "^\s*${fixkey}\s*=\s*.*$" "${file}" 
 }
 
-function read_cfg_key()
+function yx_read_config()
 {
 
 	local file=
@@ -246,7 +408,7 @@ function read_cfg_key()
 	test -f "${file}" && grep -E "^\s*${grep_fixkey}\s*=\s*" "${file}" | sed -e  "s/[[:space:]]*${sed_fixkey}[[:space:]]*=[[:space:]]*//g" | grep -o "[^ ]\+\( \+[^ ]\+\)*"
 }
 
-function delete_cfg_key()
+function yx_delete_config()
 {
 
 	local file=
@@ -289,7 +451,7 @@ function delete_cfg_key()
 	fi
 }
 
-function commentout_cfg_key()
+function yx_commentout_config()
 {
     
 	local file=
@@ -332,7 +494,7 @@ function commentout_cfg_key()
 	fi
 }
 
-function write_cfg_key()
+function yx_write_config()
 {
 
 	local file=
@@ -407,15 +569,26 @@ function write_cfg_key()
 ####################################################################################################
 # Other sysctl operation
 ####################################################################################################
-function yx_sysctl_change()
+function yx_sysctl_config()
 {
   local file=
 	local key=
 	local val=
   local refresh=false
 
+  local option=
+
 	while [ $# -gt 0 ]; do
 		case $1 in
+
+    --read )
+      option='READ'
+    ;;
+
+    --write )
+      option='WRITE'
+    ;;
+
 		--file )
 			shift
 			file=$1
@@ -442,42 +615,167 @@ function yx_sysctl_change()
 		shift
 	done
 
+
+  function _refresh_sysctl_config()
+  {
+    #:echo_cmd
+    echo_verbose 'Make system configure enable...'
+    echo_verbose "${SYSCTL} -p ${file} > /dev/null"
+    "${SYSCTL}" -p "${file}" > /dev/null
+  }
+
+
   if [ -z "${file}" ]; then
     file="${SYSCFG_PATH}"
+  fi
+
+
+  if [[ "${option}" == 'READ' ]]; then
+
+    if [ -z "${key}" ]; then
+      echo_fatal "Empty value on sysctl config key."
+    fi
+
+    yx_read_config --file "${file}" --key "${key}"
+  elif [[ "${option}" == 'WRITE' ]]; then
+
+    if [ -z "${key}" ]; then
+      echo_fatal "Empty value on sysctl config key."
+    fi
+
+    if [ -z "${val}" ]; then
+      echo_fatal "Empty value on sysctl config val."
+    fi
+
+    # write config
+    echo_verbose "Set sysctl config: ${key} = ${val} ..."
+    yx_write_config --file "${file}" --key "${key}" --val "${val}"
+
+    #如果需要，立即应用更改
+    if ${refresh}; then
+      _refresh_sysctl_config
+    fi
+
+    # verify
+    local test_val=$(yx_read_config --file "${file}" --key "${key}")
+    if [[ -n "${test_val}" ]] && [[ "${test_val}" == "${val}" ]]; then
+      return 0
+    else
+      return 1
+    fi
+
+  else
+    if ${refresh}; then
+      _refresh_sysctl_config
+    fi
+  fi
+
+}
+
+
+function yx_iptable_config()
+{
+  local file=
+	local key=
+	local val=
+  local refresh=false
+
+  local option=
+
+	while [ $# -gt 0 ]; do
+		case $1 in
+
+		--file )
+			shift
+			file=$1
+    ;;
+
+    --read )
+      option='READ'
+    ;;
+
+    --write )
+      option='WRITE'
+    ;;
+
+		--key )
+			shift
+			key=$1
+    ;;
+
+		--val )
+			shift
+			val=$1
+    ;;
+
+    --refresh )
+			refresh=true
+    ;;
+
+    *)
+			echo_fatal "Invalid optional ${1}"
+    ;;
+		esac
+		shift
+	done
+
+  if [ -z "${file}" ]; then
+    file="${IPTABLE_CONFIG_PATH}"
   fi
 
   if [ -z "${key}" ]; then
     echo_fatal "Empty value on sysctl config key."
   fi
 
-  if [ -z "${val}" ]; then
-    echo_fatal "Empty value on sysctl config val."
-  fi
+  if [[ "${option}" == 'READ' ]]; then
+    yx_read_config --file "${file}" --key "${key}"
+  elif [[ "${option}" == 'WRITE' ]]; then
+
+    if [ -z "${val}" ]; then
+      echo_fatal "Empty value on sysctl config val."
+    fi
+
+    # write config
+    echo_verbose "Set iptables config: ${key} = ${val} ..."
+    yx_write_config --file "${file}" --key "${key}" --val "${val}"
 
 
-  # write config
-  echo_verbose "Set ${key} = ${val} ..."
-  write_cfg_key --file "${file}" --key "${key}" --val "${val}"
+    #如果需要，立即应用更改
+    if ${refresh}; then
+      local model_name=$(echo "${key}" | awk '{print $2}')
+      local parameters=$(echo "${key}" | awk '{print $3}')
+      if [[ -z "${model_name}" ]] || [[ -z "${parameters}" ]]; then
+        echo_fatal "Fail to parse config key:${key}"
+      fi
 
+      if ! ${LSMOD} | grep -qi "${model_name}"; then
+        echo_err "${model_name} module not loaded, try force load it"
+        echo_cmd "${MODPROBE} ${model_name}"
+        if [[ $? != '0' ]]; then
+          echo_fatal "Failed to load the module ${model_name}"
+        fi
+      fi
 
-  #如果需要，立即应用更改
-  if ${refresh}; then
-    #:echo_cmd
-    echo_verbose 'Make system configure enable...'
-    echo_verbose "${SYSCTL} -p > /dev/null"
-    "${SYSCTL}" -p > /dev/null
-  fi
+      echo_verbose 'Make iptables configure enable...'
+      echo "${val}" > "/sys/module/${model_name}/parameters/${parameters}"
 
-  # verify
-  local test_val=$(read_cfg_key --file "${file}" --key "${key}")
-  if [[ -n "${test_val}" ]] && [[ "${test_val}" == "${val}" ]]; then
-    return 0
+    fi
+
+    # verify
+    local test_val=$(yx_read_config --file "${file}" --key "${key}")
+    if [[ -n "${test_val}" ]] && [[ "${test_val}" == "${val}" ]]; then
+      return 0
+    else
+      return 1
+    fi
   else
-    return 1
+    if ${refresh}; then
+      # iptables 配置文件，不能够直接refresh !!
+      echo_fatal "refresh iptables config need a specific key-val items."
+    fi
   fi
 
 }
-
 
 ####################################################################################################
 # Other YXLib
@@ -2085,7 +2383,7 @@ function iptables_config()
       fi
 
       if [ -r "${config_file}" ]; then
-        read_cfg_key --file "${config_file}" --key "${key}"
+        yx_read_config --file "${config_file}" --key "${key}"
       fi
 
     elif [[ "${option}" == 'write' ]]; then
@@ -2098,13 +2396,13 @@ function iptables_config()
         echo_fatal "${CMD} --write must provide value property, using --val"
       fi
 
-      if has_cfg_haskey --file "${config_file}" --key "${key}"; then
+      if yx_has_config --file "${config_file}" --key "${key}"; then
         echo_verbose "config remove(key=${key} domain=${domain}) on file:${config_file}"
-        delete_cfg_key --file "${config_file}" --key "${key}"
+        yx_delete_config --file "${config_file}" --key "${key}"
       fi
 
       echo_verbose "config write(key=${key} val=${val} domain=${domain}) on file:${config_file}"
-      write_cfg_key --file "${config_file}" --key "${key}" --val "${val}"
+      yx_write_config --file "${config_file}" --key "${key}" --val "${val}"
     elif [[ "${option}" == 'remove' ]]; then
 
       if [[ -z ${key} ]]; then
@@ -2113,7 +2411,7 @@ function iptables_config()
 
       if [ -w "${config_file}" ]; then
         echo_verbose "config remove(key=${key} domain=${domain}) on file:${config_file}"
-        delete_cfg_key --file "${config_file}" --key "${key}"
+        yx_delete_config --file "${config_file}" --key "${key}"
       fi
 
     elif [[ "${option}" == 'list' ]]; then
@@ -2134,6 +2432,7 @@ function iptables_start()
 {
   local show_help=false
   local info_level=
+
 
   while [ $# -gt 0 ]; do
 		case $1 in
@@ -2184,38 +2483,45 @@ function iptables_save()
   local show_help=false
   local info_level=
 
-  local log_input=false
-  local log_input_prefix=
-  local log_output=false
-  local log_output_prefix=
-  local log_forward=false
-  local log_forward_prefix=
+  # local log_input=false
+  # local log_input_prefix=
+  # local log_output=false
+  # local log_output_prefix=
+  # local log_forward=false
+  # local log_forward_prefix=
+
+  local memsize=
 
   while [ $# -gt 0 ]; do
 		case $1 in
 
-      --log-input )
-        shift
-        log_input=true
-				log_input_prefix=$1
-			;;
+      # --log-input )
+      #   shift
+      #   log_input=true
+			# 	log_input_prefix=$1
+			# ;;
 
-      --log-output )
-        shift
-				log_output=true
-        log_output_prefix=$1
-			;;
+      # --log-output )
+      #   shift
+			# 	log_output=true
+      #   log_output_prefix=$1
+			# ;;
 
-      --log-forward )
-        shift
-				log_forward=true
-        log_forward_prefix=$1
-			;;
+      # --log-forward )
+      #   shift
+			# 	log_forward=true
+      #   log_forward_prefix=$1
+			# ;;
 
       --info-level )
         shift
         info_level=$1
       ;;
+
+      --memsize )
+        shift
+        memsize=$1
+			;;
 
 			--help )
 				show_help=true
@@ -2237,6 +2543,83 @@ function iptables_save()
     if [ -n "${info_level}" ]; then
       set_info_level "${info_level}"
     fi
+
+
+    if [ -z "${memsize}" ]; then
+      memsize=$(yx_mem_total)
+    fi
+
+    ###############################
+    # CONTRACT_MAX 和 HASHSIZE
+    ###############################
+    local conntrack_max=$(yx_estimate_conntrack_max "${memsize}")
+    if [[ -n "${conntrack_max}" ]]; then
+      # 一般大于1GB的系统，CONTRACT_MAX 默认值是 65536
+      # 而内存大于2GB时, yx_estimate_conntrack_max 才会计算出大于65536的值
+      # 因此，如果内存大于1GB， 但计算出小于65536的值，则不更改配置
+      if [[ $(yx_size_to_bytes "${memsize}") -gt $(yx_size_to_bytes 1GB) ]]  &&  [[ "${conntrack_max}" -gt '65536' ]]; then
+
+        #修改 conntrack_max
+        if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_max" --val "${conntrack_max}"; then
+          echo_fatal "failed to change 'net.netfilter.nf_conntrack_max' to ${conntrack_max}"
+        fi
+
+        if ! yx_sysctl_config --write --key "net.nf_conntrack_max" --val "${conntrack_max}"; then
+          echo_fatal "failed to change 'net.nf_conntrack_max' to ${conntrack_max}"
+        fi
+
+        # 修改HASHSIZE
+        local hashsize=$((conntrack_max/2))
+        if [ -n "${hashsize}" ]; then
+            local mod_probe_dir=$(dirname "${IPTABLE_CONFIG_PATH}")
+          if ! [ -d "${mod_probe_dir}" ]; then
+            echo_err "DIR ${mod_probe_dir} not exist, try create one"
+            echo_cmd "mkdir -p ${mod_probe_dir}"
+            if [ ! -d  "${mod_probe_dir}" ]; then
+              echo_fatal "Failed to mkdir ${mod_probe_dir}"
+            fi
+          fi
+
+          # iptables 变更生效，必须带指定的key和value
+          yx_iptable_config --write --refresh --key "options nf_conntrack hashsize" --val "${hashsize}"
+        fi
+
+      fi
+    fi
+
+    ###############################
+    # 响应时间
+    ###############################
+    #主动方的最后1个状态。默认120秒
+    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_fin_wait" --val '30'; then
+      echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_fin_wait' to 30"
+    fi
+    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_time_wait" --val '30'; then
+      echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_time_wait' to 30"
+    fi
+
+    # CLOSE_WAIT是被动方收到FIN发ACK，然后会转到LAST_ACK发FIN，除非程序写得有问题，正常来说这状态持续时间很短。#默认 60 秒
+    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_close_wait" --val '15'; then
+      echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_close_wait' to 15"
+    fi
+
+    # keep-alive time, 理论上不用这么长，不小于 net.ipv4.tcp_keepalive_time 就行了。默认 432000 秒（5天）
+    local established_timeout=300
+    local tcp_keepalive_time=$(yx_sysctl_config --read --key 'net.ipv4.tcp_keepalive_time')
+    if [[ -n "${tcp_keepalive_time}" ]]  &&  [[ "${tcp_keepalive_time}" -lt "${established_timeout}" ]]; then
+      established_timeout="${tcp_keepalive_time}"
+    fi
+    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_established" --val '300'; then
+      echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_established' to 300"
+    fi
+
+
+    ###############################
+    # 变更生效
+    ###############################
+    # sysctl
+    yx_sysctl_config --refresh
+    
 
 
     # input_optional=$(iptables_default --list --input)
@@ -3834,7 +4217,7 @@ function iptables_nat()
 
     # set net.ipv4.ip_forward=1
     #echo "IP forwarding has been set to '1'"
-    if ! yx_sysctl_change --refresh --key 'net.ipv4.ip_forward' --val 1 --refresh; then
+    if ! yx_sysctl_config --write --refresh --key 'net.ipv4.ip_forward' --val 1 --refresh; then
     # if ! ip_forward_v4 enable; then
       echo_fatal "failed to change net.ipv4.ip_forward item to '1'"
     fi
@@ -4887,20 +5270,20 @@ function handle_synflood_server()
     fi
 
     # reduce retry times to 3 of syn and syn-ack packagte (default is 5)
-    if ! yx_sysctl_change --refresh --key 'net.ipv4.tcp_synack_retries' --val 3; then
+    if ! yx_sysctl_config --write --refresh --key 'net.ipv4.tcp_synack_retries' --val 3; then
       echo_fatal "failed to change net.ipv4.tcp_synack_retries item to '3'"
     fi
-    if ! yx_sysctl_change --refresh --key 'net.ipv4.tcp_syn_retries' --val 3; then
+    if ! yx_sysctl_config --write --refresh --key 'net.ipv4.tcp_syn_retries' --val 3; then
       echo_fatal "failed to change net.ipv4.tcp_syn_retries item to '3'"
     fi
 
     # enable syncookies (default is 0)
-    if ! yx_sysctl_change --refresh --key 'net.ipv4.tcp_syncookies' --val 1; then
+    if ! yx_sysctl_config --write --refresh --key 'net.ipv4.tcp_syncookies' --val 1; then
       echo_fatal "failed to change net.ipv4.tcp_syncookies item to '1'"
     fi
 
     # expand length of backlog queue (default is 1024)
-    if ! yx_sysctl_change --refresh --key 'net.ipv4.tcp_max_syn_backlog' --val 2048; then
+    if ! yx_sysctl_config --write --refresh --key 'net.ipv4.tcp_max_syn_backlog' --val 2048; then
       echo_fatal "failed to change net.ipv4.tcp_syncookies item to '2048'"
     fi
 
