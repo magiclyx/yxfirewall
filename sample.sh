@@ -337,7 +337,8 @@ sudo ./firewall incoming DROP --log firewall-drop
 ###########################################################
 #:~TODO 去除 save 命令 三个log相关参数
 echo_noti "Save changes..."
-sudo ./firewall save --log-input firewall-input-drop:
+# sudo ./firewall save --memsize 3G
+sudo ./firewall save
 
 
 ###########################################################
