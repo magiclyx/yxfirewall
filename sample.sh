@@ -55,7 +55,7 @@ FTP_HOSTS=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+) or \*
 
 # 可通过配置文件，修改port号。 
 # 也可在命令中直接指定 --port 参数
-# sudo ./firewall config rule.ssh --remove --key port
+# sudo ./yxfirewall config rule.ssh --remove --key port
 
 ###########################################################
 # SNAT 定义
@@ -125,8 +125,8 @@ function echo_info()
 if ${DEBUG}; then
     echo_noti "Change output level to 'DEBUG'..."
 
-    info_level_buckup=$(sudo ./firewall config --read --key info.level)
-    sudo ./firewall config --write --key info.level --val verbose 
+    info_level_buckup=$(sudo ./yxfirewall config --read --key info.level)
+    sudo ./yxfirewall config --write --key info.level --val verbose 
 fi
 
 
@@ -135,11 +135,11 @@ fi
 ###########################################################
 echo_noti "Initialize..."
 
-sudo ./firewall start  # 启动服务
+sudo ./yxfirewall start  # 启动服务
 echo_info "Clear all rule..."
-sudo ./firewall clear  # 清空所有规则
+sudo ./yxfirewall clear  # 清空所有规则
 echo_info "Set default policy..."
-sudo ./firewall default DROP --all  # 设置所有规则的默认行为是Drop
+sudo ./yxfirewall default DROP --all  # 设置所有规则的默认行为是Drop
 
 
 ###########################################################
@@ -151,7 +151,7 @@ then
   echo_noti "Set deny hosts..."
 	for host in "${DENY_HOSTS[@]}";
 	do
-      sudo ./firewall incoming drop --net "${host}" --log firewall-denyhost:limit:1/s
+      sudo ./yxfirewall incoming drop --net "${host}" --log firewall-denyhost:limit:1/s
 	done
 fi
 
@@ -163,16 +163,16 @@ echo_noti "Set Common guard rule..."
 
 # 攻击防护：broadcast
 echo_info "Block broadcast package..."
-sudo ./firewall Server Block --proto wall-broadcast --chain "FW_BROADCAST" --log firewall-broadcast:-
+sudo ./yxfirewall Server Block --proto wall-broadcast --chain "FW_BROADCAST" --log firewall-broadcast:-
 # 攻击防护：bad package
 echo_info "Block bad package..."
-sudo ./firewall Server Block --proto wall-pkg --chain "FW_PKG" --log firewall-invalid-package:-
+sudo ./yxfirewall Server Block --proto wall-pkg --chain "FW_PKG" --log firewall-invalid-package:-
 # 攻击防护：syn flood
 echo_info "Block syn-flood attack..."
-sudo ./firewall Server Block --proto wall-synflood --chain "FW_SYNFLOOD" --log firewall-synflood:-
+sudo ./yxfirewall Server Block --proto wall-synflood --chain "FW_SYNFLOOD" --log firewall-synflood:-
 # 攻击防护：stealth scan
 echo_info "Block steal-scan..."
-sudo ./firewall Server Block --proto wall-scan --chain "FW_STEALTHSCAN" --log firewall-stealthscan:-
+sudo ./yxfirewall Server Block --proto wall-scan --chain "FW_STEALTHSCAN" --log firewall-stealthscan:-
 
 
 ###########################################################
@@ -181,9 +181,9 @@ sudo ./firewall Server Block --proto wall-scan --chain "FW_STEALTHSCAN" --log fi
 echo_noti "Set Loopback"
 
 if ${LOOP_BACK}; then
- sudo ./firewall loopback Enable
+ sudo ./yxfirewall loopback Enable
 else
-  sudo ./firewall loopback Disable
+  sudo ./yxfirewall loopback Disable
 fi
 
 ###########################################################
@@ -202,7 +202,7 @@ then
     if [[ ${net} != '*' ]]; then
       ip_params="--net ${net}"
     fi
-      sudo ./firewall Server ACCEPT --proto icmp --chain "FW_ICMP" ${ip_params} --log firewall-icmp:-
+      sudo ./yxfirewall Server ACCEPT --proto icmp --chain "FW_ICMP" ${ip_params} --log firewall-icmp:-
   done
 fi
 
@@ -219,7 +219,7 @@ then
     if [[ ${net} != '*' ]]; then
       ip_params="--net ${net}"
     fi
-      sudo ./firewall Server ACCEPT --proto ssh --chain "FW_SSH" ${ip_params} --log firewall-ssh:-
+      sudo ./yxfirewall Server ACCEPT --proto ssh --chain "FW_SSH" ${ip_params} --log firewall-ssh:-
   done
 fi
 
@@ -234,9 +234,9 @@ then
     if [[ ${net} != '*' ]]; then
       ip_params="--net ${net}"
     fi
-      sudo ./firewall Server ACCEPT --proto https --chain "FW_HTTPS" ${ip_params} --log firewall-https:-
+      sudo ./yxfirewall Server ACCEPT --proto https --chain "FW_HTTPS" ${ip_params} --log firewall-https:-
       if ! ${HTTPS_ONLY}; then
-          sudo ./firewall Server ACCEPT --proto http --chain "FW_HTTP" ${ip_params} --log firewall-http:-
+          sudo ./yxfirewall Server ACCEPT --proto http --chain "FW_HTTP" ${ip_params} --log firewall-http:-
       fi
   done
 fi
@@ -258,7 +258,7 @@ then
     if [ -n ${FTP_PORTS_RANGE} ]; then
       port_params="--port ${FTP_PORTS_RANGE}"
     fi
-      sudo ./firewall Server ACCEPT --proto ftp ${port_params} --chain "FTP_SRV" ${ip_params}
+      sudo ./yxfirewall Server ACCEPT --proto ftp ${port_params} --chain "FTP_SRV" ${ip_params}
   done
 fi
 
@@ -272,7 +272,7 @@ then
   echo_noti "Set SNAT..."
   for lan in "${SNAT_LAN_LIST[@]}"
   do
-    sudo ./firewall nat --snat --from-inter "${lan}" --to-inter "${SNAT_WAN}" --log firewall-forward:
+    sudo ./yxfirewall nat --snat --from-inter "${lan}" --to-inter "${SNAT_WAN}" --log firewall-forward:
   done
 fi
 
@@ -286,7 +286,7 @@ then
   echo_noti "Set incoming host..."
   for host in "${INCOMING_HOST[@]}";
   do
-    sudo ./firewall Server ACCEPT --net "${host}"
+    sudo ./yxfirewall Server ACCEPT --net "${host}"
   done
 fi
 
@@ -295,7 +295,7 @@ then
   echo_noti "Set outgoing host..."
   for host in "${OUTGOING_HOST[@]}";
   do
-    sudo ./firewall Client ACCEPT --net "${host}"
+    sudo ./yxfirewall Client ACCEPT --net "${host}"
   done
 fi
 
@@ -304,8 +304,8 @@ then
   echo_noti "Set full-trust host..."
   for host in "${FULL_TRUST_HOSTS[@]}";
   do
-    sudo ./firewall incoming ACCEPT --net "${host}"
-    sudo ./firewall outgoing ACCEPT --net "${host}"
+    sudo ./yxfirewall incoming ACCEPT --net "${host}"
+    sudo ./yxfirewall outgoing ACCEPT --net "${host}"
   done
 fi
 
@@ -329,7 +329,7 @@ fi
 # 如果上述规则不适用，则记录并丢弃
 ###########################################################
 echo_noti "Drop any other connect..."
-sudo ./firewall incoming DROP --log firewall-drop
+sudo ./yxfirewall incoming DROP --log firewall-drop
 
 
 ###########################################################
@@ -337,8 +337,8 @@ sudo ./firewall incoming DROP --log firewall-drop
 ###########################################################
 #:~TODO 去除 save 命令 三个log相关参数
 echo_noti "Save changes..."
-# sudo ./firewall save --memsize 3G
-sudo ./firewall save
+# sudo ./yxfirewall save --memsize 3G
+sudo ./yxfirewall save --memsize 3G
 
 
 ###########################################################
@@ -346,9 +346,9 @@ sudo ./firewall save
 ###########################################################
 echo_noti "Reset Info.level..."
 if [ -n "${info_level_buckup}" ]; then
-    sudo ./firewall config --write --key info.level --val "${info_level_buckup}"
+    sudo ./yxfirewall config --write --key info.level --val "${info_level_buckup}"
 else
-    sudo ./firewall config --remove --key info.level
+    sudo ./yxfirewall config --remove --key info.level
 fi
 
 
@@ -357,7 +357,7 @@ fi
 ###########################################################
 echo -ne "\n\n"
 echo "####################################################################################################"
-sudo ./firewall list
+sudo ./yxfirewall list
 echo -ne "\n\n"
-sudo ./firewall list --table nat
+sudo ./yxfirewall list --table nat
 
