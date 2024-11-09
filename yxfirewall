@@ -5,12 +5,22 @@ CMD=$(basename $0)
 # WAN='enp0s17'
 SYSCFG_PATH='/etc/sysctl.conf'
 IPTABLE_CONFIG_PATH='/etc/modprobe.d/iptables.conf'
-FILENAME_NAT='iptables'
-FILENAME_NAT6='iptables6'
 
-RULE_DIR='/etc/yuxi/firewall'
+
+
 # CONFIG_FILE='/var/lib/yuxi/firewall.conf'
+
+# script config path
 CONFIG_DIR="/var/lib/yuxi/${CMD}"
+# script saved iptables's rule path
+RULE_FILENAME_v4='iptables'
+RULE_FILENAME_v6='ip6tables'
+RULE_DIR="/etc/yuxi/${CMD}"
+# script start script on systemd
+SYSTEMD_INIT_PATH="/etc/systemd/system/${CMD}.service"
+# script start script on init.d
+INITD_SCRIPT_PATH="/etc/init.d/${CMD}"
+
 
 DEBUG=true
 # silent
@@ -29,12 +39,13 @@ IP6TABLES='/usr/sbin/ip6tables'
 IPTABLES_SAVE='/usr/sbin/iptables-save'
 IP6TABLES_SAVE='/usr/sbin/ip6tables-save'
 
-IPTABLES_RESTORE='/usr/sbin/iptables-restore'
-IP6TABLES_RESTORE='/usr/sbin/ip6tables-restore'
+# IPTABLES_RESTORE='/usr/sbin/iptables-restore'
+# IP6TABLES_RESTORE='/usr/sbin/ip6tables-restore'
 
 SYSCTL='/usr/sbin/sysctl'
 MODPROBE='/usr/sbin/modprobe'
 LSMOD='/usr/sbin/lsmod'
+CHMOD='/usr/bin/chmod'
 
 
 
@@ -2281,6 +2292,108 @@ cat <<EOF
 EOF
 }
 
+####################################################################################################
+# conf
+####################################################################################################
+
+function create_script_init()
+{
+
+  local path_v4=
+  local path_v6=
+
+  while [ $# -gt 0 ]; do
+		case $1 in
+		--path )
+			shift
+			path_v4=$1
+		;;
+
+    --path-ip6 )
+			shift
+			path_v6=$1
+		;;
+
+		*)
+			echo_fatal "Invalid optional ${1}"
+		;;
+		esac
+		shift
+	done
+
+
+cat <<EOF
+#!/bin/bash
+
+### BEGIN INIT INFO
+# Provides:          Yuxi Liu
+# Required-Start:
+# Required-Stop:
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: "${CMD}" startup script
+# Description:       "${CMD}" startup script. It apply firewall rule on startup, pre network.
+### END INIT INFO
+
+
+set -e
+
+PATH="/bin:/sbin:/usr/sbin"
+
+start() {
+  /usr/sbin/iptables-restore < "${path_v4}"
+  /usr/sbin/ip6tables-restore < "${path_v6}"
+  exit 0
+}
+
+case "\$1" in
+  start)
+    start
+    ;;
+
+  *)
+    echo "Usage: ${CMD} {start}"
+    exit 1
+esac
+
+eixt 0
+
+EOF
+
+}
+
+function create_ubuntu_service_config()
+{
+  local path=
+
+  while [ $# -gt 0 ]; do
+		case $1 in
+		--path )
+			shift
+			path=$1
+		;;
+
+		*)
+			echo_fatal "Invalid optional ${1}"
+		;;
+		esac
+		shift
+	done
+
+
+cat <<EOF
+[Unit]
+Description = Apply base firewall rules
+
+[Service]
+Type=oneshot
+ExecStart=${path} start
+
+[Install]
+WantedBy=network-pre.target
+EOF
+}
+
 
 ####################################################################################################
 # iptables
@@ -2581,7 +2694,7 @@ function iptables_save()
           fi
 
           # iptables 变更生效，必须带指定的key和value
-          yx_iptable_config --write --refresh --key "options nf_conntrack hashsize" --val "${hashsize}"
+          # yx_iptable_config --write --refresh --key "options nf_conntrack hashsize" --val "${hashsize}"
         fi
 
       fi
@@ -2643,21 +2756,47 @@ function iptables_save()
       fi
 
       # save current config
-      RULE_FILE="${RULE_DIR}/${FILENAME_NAT}".rules
-      local script_file_v4="/etc/network/if-pre-up.d/${FILENAME_NAT}"
+      RULE_FILE="${RULE_DIR}/${RULE_FILENAME_v4}".rules
+      RULE6_FILE="${RULE_DIR}/${RULE_FILENAME_v6}".rules
 
-      RULE6_FILE="${RULE_DIR}/${FILENAME_NAT6}".rules
-      local script_file_v6="/etc/network/if-pre-up.d/${FILENAME_NAT6}"
+      # TODO
+      # local script_file_v4="/etc/network/if-pre-up.d/${RULE_FILENAME_v6}"
+      # local script_file_v6="/etc/network/if-pre-up.d/${RULE_FILENAME_v4}"
 
       # Create iptables rule file ...
       echo_verbose "Create iptables rule file ..."
+      echo_verbose "Create file:${RULE_FILE}"
       echo_cmd "${IPTABLES_SAVE} --file ${RULE_FILE}"
+      echo_verbose "Create file:${RULE6_FILE}"
       echo_cmd "${IP6TABLES_SAVE} --file ${RULE6_FILE}"
       
-      # Create launch script ...
-      echo_verbose "Create launch script ..."
-      echo -e "#!/bin/bash\n${IPTABLES_RESTORE} < ${RULE_FILE}" | tee ${script_file_v4} | echo_verbose
-      echo -e "#!/bin/bash\n${IP6TABLES_RESTORE} < ${RULE6_FILE}" | tee ${script_file_v6} | echo_verbose
+      # Create init.d script
+      echo_verbose "Create init.d script ..."
+      local initd_script_dir=$(dirname "${INITD_SCRIPT_PATH}")
+      if [ ! -d "${initd_script_dir}" ]; then
+        echo_err "DIR ${initd_script_dir} not exist, try create one"
+        echo_cmd "mkdir -p ${initd_script_dir}"
+        if [ ! -d "${initd_script_dir}" ]; then
+          echo_fatal "Failed to mkdir ${initd_script_dir}"
+        fi
+      fi
+      echo_verbose "Create file:${INITD_SCRIPT_PATH}"
+      create_script_init --path "${RULE_FILE}" --path-ip6 "${RULE6_FILE}" > "${INITD_SCRIPT_PATH}"
+      echo_cmd "${CHMOD} 0766 ${INITD_SCRIPT_PATH}"
+
+      # Create systemctl service config.
+      echo_verbose "Create systemd service config ..."
+      local systemd_init_dir=$(dirname ${SYSTEMD_INIT_PATH})
+      if [ ! -d "${systemd_init_dir}" ]; then
+        echo_err "DIR ${systemd_init_dir} not exist, try create one"
+        echo_cmd "mkdir -p ${systemd_init_dir}"
+        if [ ! -d "${systemd_init_dir}" ]; then
+          echo_fatal "Failed to mkdir ${systemd_init_dir}"
+        fi
+      fi
+
+      echo_verbose "Create file:${SYSTEMD_INIT_PATH}"
+      create_ubuntu_service_config --path "${INITD_SCRIPT_PATH}" > "${SYSTEMD_INIT_PATH}"
       
     else
       :
@@ -6865,7 +7004,9 @@ function ftp_handler()
 
 
 # Use critical environment
-PATH=/sbin:/usr/sbin:/bin:/usr/bin
+# PATH=/sbin:/usr/sbin:/bin:/usr/bin
+ATH=/sbin:/bin
+
 
 # Force root
 if [ "$(id -u)" -ne 0 ]; then
