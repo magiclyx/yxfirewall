@@ -4,7 +4,7 @@ CMD=$(basename $0)
 # LAN='enp0s8'
 # WAN='enp0s17'
 SYSCFG_PATH='/etc/sysctl.conf'
-IPTABLE_CONFIG_PATH='/etc/modprobe.d/iptables.conf'
+NF_CONNTRACK_CONFIG_PATH='/etc/modprobe.d/nf_conntrack.conf'
 
 
 
@@ -511,6 +511,8 @@ function yx_write_config()
 	local file=
 	local key=
 	local val=
+  local space=' '
+  local nospace=false
 
 	while [ $# -gt 0 ]; do
 		case $1 in
@@ -527,6 +529,10 @@ function yx_write_config()
 		--val )
 			shift
 			val=$1
+    ;;
+
+		--no-space )
+			nospace=true
     ;;
 
     *)
@@ -549,6 +555,11 @@ function yx_write_config()
 		echo_fatal 'file is empty'
 	fi
 
+  # 部分配置文件，不允许等号两旁有空格
+  if ${nospace}; then
+    space=''
+  fi
+
 
 	local sed_fixkey=$(echo "${key}" | _sed_escape)
 	local grep_fixkey=$(echo "${key}" | _grep_escape)
@@ -557,9 +568,9 @@ function yx_write_config()
 	elif test -f "${file}" && grep -Eq "^\s*#\s*${grep_fixkey}\s*=.*$" "${file}"; then #Test file exist and text '# key = xxx' exist
 		if 	grep -Eq "^\s*#\s*${grep_fixkey}\s*=\s*${val}\s*$" "${file}"; then #Test exist '# key = val', remove '#' and format line.
 			if [[ $(os_type) == 'osx' ]]; then
-				sed -i "" "s/^[[:space:]]*#*[[:space:]]*${sed_fixkey}[[:space:]]*=.*/${sed_fixkey} = ${val}/g" "${file}"
+				sed -i "" "s/^[[:space:]]*#*[[:space:]]*${sed_fixkey}[[:space:]]*=.*/${sed_fixkey}${space}=${space}${val}/g" "${file}"
 			else
-				sed -i "s/^[[:space:]]*#*[[:space:]]*${sed_fixkey}[[:space:]]*=.*/${sed_fixkey} = ${val}/g" "${file}"
+				sed -i "s/^[[:space:]]*#*[[:space:]]*${sed_fixkey}[[:space:]]*=.*/${sed_fixkey}${space}=${space}${val}/g" "${file}"
 			fi
 		else # Text '# key=???' exist, append 'key = val' below.
 			if [[ $(os_type) == 'osx' ]]; then
@@ -568,11 +579,11 @@ function yx_write_config()
 				${sed_fixkey} = ${val}\\
 				" "${file}"
 			else
-				sed -i "/^[[:space:]]*#*[[:space:]]*${sed_fixkey}[[:space:]]*=.*/ a ${sed_fixkey} = ${val}" "${file}"
+				sed -i "/^[[:space:]]*#*[[:space:]]*${sed_fixkey}[[:space:]]*=.*/ a ${sed_fixkey}${space}=${space}${val}" "${file}"
 			fi
 		fi
 	else
-		echo "${key} = ${val}" >> "${file}"
+		echo "${key}${space}=${space}${val}" >> "${file}"
 	fi	
 }
 
@@ -731,7 +742,7 @@ function yx_iptable_config()
 	done
 
   if [ -z "${file}" ]; then
-    file="${IPTABLE_CONFIG_PATH}"
+    file="${NF_CONNTRACK_CONFIG_PATH}"
   fi
 
   if [ -z "${key}" ]; then
@@ -748,7 +759,7 @@ function yx_iptable_config()
 
     # write config
     echo_verbose "Set iptables config: ${key} = ${val} ..."
-    yx_write_config --file "${file}" --key "${key}" --val "${val}"
+    yx_write_config --no-space --file "${file}" --key "${key}" --val "${val}"
 
 
     #如果需要，立即应用更改
@@ -2684,7 +2695,7 @@ function iptables_save()
         # 修改HASHSIZE
         local hashsize=$((conntrack_max/2))
         if [ -n "${hashsize}" ]; then
-            local mod_probe_dir=$(dirname "${IPTABLE_CONFIG_PATH}")
+            local mod_probe_dir=$(dirname "${NF_CONNTRACK_CONFIG_PATH}")
           if ! [ -d "${mod_probe_dir}" ]; then
             echo_err "DIR ${mod_probe_dir} not exist, try create one"
             echo_cmd "mkdir -p ${mod_probe_dir}"
@@ -2694,7 +2705,7 @@ function iptables_save()
           fi
 
           # iptables 变更生效，必须带指定的key和value
-          # yx_iptable_config --write --refresh --key "options nf_conntrack hashsize" --val "${hashsize}"
+          yx_iptable_config --write --refresh --key "options nf_conntrack hashsize" --val "${hashsize}"
         fi
 
       fi
