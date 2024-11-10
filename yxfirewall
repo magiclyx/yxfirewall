@@ -6199,6 +6199,16 @@ function handle_icmp_server_and_client()
     ##########################################
     # ICMP 包规则
     ##########################################
+
+    # 将ICMP 默认超时时间，从30秒改为10妙
+    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_icmp_timeout" --val '10'; then
+      echo_fatal "failed to change 'net.netfilter.nf_conntrack_icmp_timeout' to 10"
+    fi
+    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_icmpv6_timeout" --val '10'; then
+      echo_fatal "failed to change 'net.netfilter.nf_conntrack_icmpv6_timeout' to 10"
+    fi
+
+
     #
     # 1. ICMP 包必须封装在一个2层的帧中,因此它们不会有碎片, 带有碎片的 ICMP 包通常被标记为恶意攻击
     # 2. 10 次 ping 超过每秒 1 次后丢弃
