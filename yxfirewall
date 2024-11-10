@@ -2769,27 +2769,49 @@ function iptables_save()
     # 响应时间
     ###############################
     #主动方的最后1个状态。默认120秒
-    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_fin_wait" --val '30'; then
-      echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_fin_wait' to 30"
+    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_fin_wait" --val '10'; then
+      echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_fin_wait' to 10"
     fi
-    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_time_wait" --val '30'; then
-      echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_time_wait' to 30"
+    # - Linux 里的 MSL 写死 60 秒（而不是 TCP 标准里拍脑袋的 120 秒），TIME_WAIT 要等 2MSL，这里 120 算是个合理的值。
+    # - 但现在默认有 PAWS（`net.ipv4.tcp_timestamps`），不会出现标准制定时担心的迷途报文回来碰巧污染了序列号相同的新连接的数据的情况
+    # 互联网公司基本都开 `net.ipv4.tcp_tw_reuse`，既然半连接都不留这么久，记录似乎也不需要留这么久。
+    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_time_wait" --val '10'; then
+      echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_time_wait' to 10"
     fi
 
     # CLOSE_WAIT是被动方收到FIN发ACK，然后会转到LAST_ACK发FIN，除非程序写得有问题，正常来说这状态持续时间很短。#默认 60 秒
-    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_close_wait" --val '15'; then
-      echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_close_wait' to 15"
+    # CLOSE_WAIT 状态是让被动关闭方把该传的数据传完。如果程序写得不好，这里抛了未捕捉的异常，也许就走不到发 FIN 那步了，一直停在这里。
+    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_close_wait" --val '10'; then
+      echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_close_wait' to 10"
     fi
 
-    # keep-alive time, 理论上不用这么长，不小于 net.ipv4.tcp_keepalive_time 就行了。默认 432000 秒（5天）
+    # 这个值对应的场景是 “双方建立了连接后一直不发包，直到 5天(432000秒)后才发”
+    # established_time(默认 432000秒 5天), 理论上不用这么长，不小于 net.ipv4.tcp_keepalive_time 就行了。
+    # 默认 keep-alive 超时时间只有 2 小时 11 分（`net.ipv4.tcp_keepalive_time + net.ipv4.tcp_keepalive_intvl * net.ipv4.tcp_keepalive_probes`）
+    # 空连接攻击的最佳目标。攻击者把 IP 包头的源地址改成随机 IP，握完手就关 socket，用一台机发请求就能把你的哈希表填满
     local established_timeout=300
     local tcp_keepalive_time=$(yx_sysctl_config --read --key 'net.ipv4.tcp_keepalive_time')
     if [[ -n "${tcp_keepalive_time}" ]]  &&  [[ "${tcp_keepalive_time}" -lt "${established_timeout}" ]]; then
       established_timeout="${tcp_keepalive_time}"
     fi
-    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_established" --val '300'; then
+    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_established" --val "${established_timeout}"; then
       echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_established' to 300"
     fi
+
+    # 类似，故意不发握手的 ACK 即可。但这个超时时间没那么夸张，系统也有 syn cookie 机制来缓解 syn flood 攻击。
+    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_syn_recv" --val '5'; then
+      echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_syn_recv' to 5"
+    fi
+    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_syn_sent" --val '5'; then
+      echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_syn_sent' to 5"
+    fi
+
+    # 被动关闭方发 FIN 后如果一直收不到对面的 ACK 或 RST，会不断重发，
+    # 直到超时才 CLOSE。`net.ipv4.tcp_retries2` 的默认值是 15，最多要等 924.6 秒……不过一般都会调小这个值。
+    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_last_ack" --val '10'; then
+      echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_last_ack' to 10"
+    fi
+    
 
 
     ###############################
@@ -5490,6 +5512,12 @@ function handle_synflood_server()
     if ! yx_sysctl_config --write --refresh --key 'net.ipv4.tcp_max_syn_backlog' --val 2048; then
       echo_fatal "failed to change net.ipv4.tcp_syncookies item to '2048'"
     fi
+
+    ###############################
+    # 变更生效
+    ###############################
+    # sysctl
+    yx_sysctl_config --refresh
 
   elif strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
     # Allow 不需要处理
