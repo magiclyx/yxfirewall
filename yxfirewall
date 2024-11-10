@@ -1,14 +1,9 @@
 #!/bin/bash
 
 CMD=$(basename $0)
-# LAN='enp0s8'
-# WAN='enp0s17'
 SYSCFG_PATH='/etc/sysctl.conf'
 NF_CONNTRACK_CONFIG_PATH='/etc/modprobe.d/nf_conntrack.conf'
 
-
-
-# CONFIG_FILE='/var/lib/yuxi/firewall.conf'
 
 # script config path
 CONFIG_DIR="/var/lib/yuxi/${CMD}"
@@ -22,7 +17,6 @@ SYSTEMD_INIT_PATH="/etc/systemd/system/${CMD}.service"
 INITD_SCRIPT_PATH="/etc/init.d/${CMD}"
 
 
-DEBUG=true
 # silent
 # error
 # debug
@@ -258,56 +252,6 @@ function yx_size_to_bytes()
 
 function yx_estimate_conntrack_max()
 {
-  
-  # local memstr=$1
-  
-  # function _valid_memsize()
-  # {
-  #   local memsize=$1
-    
-  #   if [[ -n "${memsize}" ]] && [[ ${memsize}=~^[1-9]+[0-9]*$ ]]; then
-  #     return 0
-  #   else
-  #     return 1
-  #   fi
-  # }
-  
-  # local memsize=
-  # if [ -n "${memstr}" ]; then
-  #   if echo "${memstr}" | grep -Eqi "^[[:space:]]*[1-9]+[0-9]*[[:space:]]*(GB|G)[[:space:]]*$"; then
-  #     local num=$(echo "${memstr}" | grep -Eo '[1-9]+[0-9]*')
-  #     ((memsize=num*1024*1024*1024))
-  #   elif echo "${memstr}" | grep -Eqi "^[[:space:]]*[1-9]+[0-9]*[[:space:]]*(MB|M)[[:space:]]*$"; then
-  #     local num=$(echo "${memstr}" | grep -Eo '[1-9]+[0-9]*')
-  #     ((memsize=num*1024*1024))
-  #   elif echo "${memstr}" | grep -Eqi "^[[:space:]]*[1-9]+[0-9]*[[:space:]]*(KB|K)[[:space:]]*$"; then
-  #     local num=$(echo "${memstr}" | grep -Eo '[1-9]+[0-9]*')
-  #     ((memsize=num*1024))
-  #   elif echo "${memstr}" | grep -Eqi "^[[:space:]]*[1-9]+[0-9]*[[:space:]]*(B|BYTE)?[[:space:]]*$"; then
-  #     memsize=$(echo "${memstr}" | grep -Eo '[1-9]+[0-9]*')
-  #   fi
-    
-  #   if ! _valid_memsize "${memsize}"; then
-  #     echo_fatal "Invalid memsize:${memstr}"
-  #   fi
-  # fi
-  
-  
-  # if ! _valid_memsize "${memsize}"; then
-  #   local mem_kb=
-  #   if which free > /dev/null; then
-  #     mem_kb=$(free | grep -i "mem" | awk '{print $2}')
-  #     ((memsize=mem_kb*1024))
-  #   fi
-  # fi
-  
-  # if ! _valid_memsize "${memsize}"; then
-  #   if [ -f /proc/meminfo ]; then
-  #     mem_kb=$(cat /proc/meminfo | head -n 1 | awk '{print $2}')
-  #     ((memsize=mem_kb*1024))
-  #   fi
-  # fi
-
   
   # memory size in bytes
   local memsize=$(yx_size_to_bytes "${1}")
@@ -1823,40 +1767,6 @@ function _parse_limit2()
 
 }
 
-# function _pre_handle_limit()
-# {
-#   # local limitstr=$1
-#   local module=
-#   local name=
-
-#   while [ $# -gt 0 ]; do
-# 		case $1 in
-# 		-m )
-# 			shift
-#       module=$1
-# 		;;
-
-# 		--name )
-# 			shift
-# 			name=$1
-# 		;;
-
-# 		*)
-#       :
-# 		;;
-# 		esac
-# 		shift
-# 	done
-
-#   if [ -n "${module}" ]
-#     if [[ "${module}" =~ ^recent-.+$ ]]; then
-#       if [ -n "${name}" ]  &&  [ ! -f "/proc/net/xt_recent/${name}" ]; then
-#         :
-#       fi
-#     fi
-#   fi
-# }
-
 
 ####################################################################################################
 # usage
@@ -2691,36 +2601,10 @@ function iptables_save()
   
   local show_help=false
   local info_level=
-
-  # local log_input=false
-  # local log_input_prefix=
-  # local log_output=false
-  # local log_output_prefix=
-  # local log_forward=false
-  # local log_forward_prefix=
-
   local memsize=
 
   while [ $# -gt 0 ]; do
 		case $1 in
-
-      # --log-input )
-      #   shift
-      #   log_input=true
-			# 	log_input_prefix=$1
-			# ;;
-
-      # --log-output )
-      #   shift
-			# 	log_output=true
-      #   log_output_prefix=$1
-			# ;;
-
-      # --log-forward )
-      #   shift
-			# 	log_forward=true
-      #   log_forward_prefix=$1
-			# ;;
 
       --info-level )
         shift
@@ -2922,22 +2806,6 @@ function iptables_save()
 
   fi
 
-
-  # log
-
-
-  # local option=$1
-  # if [ -n "${option}" ]; then
-  #   if [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
-  #     usage_save
-  #   else
-  #     echo_fatal "unknown optional \"${option}\""
-  #   fi
-  # else
-
-  # fi
-
-
 }
 
 function iptables_clear()
@@ -3014,23 +2882,7 @@ function iptables_default()
     option=
   fi
 
-  # shift
-  # if [ -z ${option} ]; then
-  #   echo_fatal 'iptables_default need at least one params [DROP , ACCEPT]'
-  # fi
 
-  # if [[ ${option} == 'accept' ]] || [[ ${option} == 'ACCEPT' ]] ; then
-  #   option="ACCEPT"
-  #   shift
-  # elif [[ ${option} == 'drop' ]] || [[ ${option} == 'DROP' ]]; then
-  #   option="DROP"
-  #   shift
-  # elif [[ ${option} == '--help' ]] || [[ ${option} == '-h' ]]; then
-  #   usage_default
-  #   exit 1
-  # # else
-  # #   echo_fatal "unknown optional \"${option}\""
-  # fi
 
   while [ $# -gt 0 ]; do
 		case $1 in
@@ -3522,39 +3374,6 @@ function iptables_wrapper()
         fi
       done
 
-
-
-
-      # # --limit_freq [6/second | 6/min | xx/hour 6/day]
-      # local limit_params=''
-      # if [[ -n ${limit_burst} ]] || [[ -n ${limit} ]] || [[ -n ${not_limit} ]]; then
-      #   limit_params=' -m limit'
-
-      #   # --limit
-      #   if [[ -n ${limit} ]]; then
-      #     if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|hour|day)$' "${limit}"; then
-      #       limit_params="${limit_params} --limit ${limit}"
-      #     else
-      #       echo_fatl "\"${limit}\" is not a valid params for --freq"
-      #     fi
-      #   elif [[ -n ${not_limit} ]]; then
-      #     if yx_str_checkfmt '^([0-9])+/(s|min|second|minute|hour|day)$' "${not_limit}"; then
-      #       limit_params="${limit_params} ! --limit ${not_limit}"
-      #     else
-      #       echo_fatal "\"${not_limit}\" is not a valid params for --freq"
-      #     fi
-      #   fi
-        
-      #   # --limit-burst
-      #   if [[ -n ${limit_burst} ]]; then
-      #     if yx_str_checkfmt '^([0-9])+$' "${limit_burst}"; then
-      #       limit_params="${limit_params} --limit-burst ${limit_burst}"
-      #     else
-      #       echo_fatal "\"${limit_burst}\" is not a valid params for --limit"
-      #     fi
-      #   fi
-
-      # fi
 
 
       # state
@@ -5759,17 +5578,6 @@ function handle_stealscan_server()
     # URG ACK PSH RST SYN FIN
 
     echo_verbose 'Add steal-scan rule...'
-    # iptables_wrapper DROP --proto tcp ! --syn ${chain_in_params} ${in_params} --state NEW ${log_params} ${additional}
-    # iptables_wrapper DROP --proto tcp --proto-flag ALL NONE ${chain_in_params} ${in_params} ${log_params} ${additional}
-    # iptables_wrapper DROP --proto tcp --proto-flag ALL ALL ${chain_in_params} ${in_params} ${log_params} ${additional}
-    # iptables_wrapper DROP --proto tcp --proto-flag ALL FIN,URG,PSH ${chain_in_params} ${in_params} ${log_params} ${additional}
-    # iptables_wrapper DROP --proto tcp --proto-flag ALL SYN,RST,ACK,FIN,URG ${chain_in_params} ${in_params} ${log_params} ${additional}
-    # iptables_wrapper DROP --proto tcp --proto-flag SYN,RST SYN,RST ${chain_in_params} ${in_params} ${log_params} ${additional}
-    # iptables_wrapper DROP --proto tcp --proto-flag SYN,FIN SYN,FIN ${chain_in_params} ${in_params} ${log_params} ${additional}
-    # iptables_wrapper RETURN ${chain_in_params} ${in_params}
-
-
-
 
     # 010000(A) - legal
     # iptables_wrapper RETURN --proto tcp --proto-flag ALL ACK ${chain_in_params} ${in_params} --state ESTABLISHED ${log_params} ${additional}
@@ -6529,9 +6337,6 @@ function handle_ssh_server()
   echo_verbose 'Add ssh rule...'
   if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
 
-    #iptables_wrapper --proto tcp --syn ${chain_params} ${in_params} --limit recent-set:ssh_attack --state NEW,ESTABLISHED 
-    #iptables_wrapper REJECT-WITH tcp-reset --proto tcp --syn ${chain_params} ${in_params} --limit recent-check:ssh_attack:60:5 --state NEW,ESTABLISHED ${additional}
-
     ###########################################################
     # 攻击防护：SSH 暴力破解
     # SSH为使用密码认证的服务器准备密码暴力攻击。
@@ -7171,10 +6976,6 @@ regist_handler Http web_handler
 regist_handler Https web_handler
 regist_handler ftp ftp_handler
 
-# echo '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
-# search_handler_info ssh port
-# echo '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
-# exit 0
 
 # Parse sub-command
 sub_cmd=$1
