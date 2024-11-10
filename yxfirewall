@@ -567,6 +567,7 @@ function yx_write_config()
 	local val=
   local space=' '
   local nospace=false
+  local duplicate=false
 
 	while [ $# -gt 0 ]; do
 		case $1 in
@@ -586,8 +587,21 @@ function yx_write_config()
     ;;
 
 		--no-space )
+      # A = B 还是 A=B
+      # 如果部分配置文件，不允许等号两旁优空格
+      # 使用 --no-space
 			nospace=true
     ;;
+
+    --duplicate-key )
+      # Key 是否可以重复。
+      # 如果当存在 A = 2 时， 写入 A = 3
+      # 默认行为是将 A = 2 替换为 A = 3
+      # 当使用 --dupliate-key 参数时 
+      # 会在 A = 2 下面 添加 A = 3.
+			duplicate=true
+    ;;
+
 
     *)
 			echo_fatal "Invalid optional ${1}"
@@ -636,6 +650,23 @@ function yx_write_config()
 				sed -i "/^[[:space:]]*#*[[:space:]]*${sed_fixkey}[[:space:]]*=.*/ a ${sed_fixkey}${space}=${space}${val}" "${file}"
 			fi
 		fi
+  elif test -f "${file}" && grep -Eq "^\s*${grep_fixkey}\s*=.*$" "${file}"; then #Test file exist and text 'key = xxx' exist
+    if ${duplicate}; then
+      if [[ $(os_type) == 'osx' ]]; then
+			    # 因为sed在OSX上的问题，这里不得不换行!!!
+				sed -i "" "/^[[:space:]]*${sed_fixkey}[[:space:]]*=.*/ a\\
+				${sed_fixkey} = ${val}\\
+				" "${file}"
+			else
+				sed -i "/^[[:space:]]*${sed_fixkey}[[:space:]]*=.*/ a ${sed_fixkey}${space}=${space}${val}" "${file}"
+			fi
+    else
+      if [[ $(os_type) == 'osx' ]]; then
+        sed -i "" "s/^[[:space:]]*${sed_fixkey}[[:space:]]*=.*/${sed_fixkey}${space}=${space}${val}/g" "${file}"
+		  else
+        sed -i "s/^[[:space:]]*${sed_fixkey}[[:space:]]*=.*/${sed_fixkey}${space}=${space}${val}/g" "${file}"
+      fi
+    fi
 	else
 		echo "${key}${space}=${space}${val}" >> "${file}"
 	fi	
