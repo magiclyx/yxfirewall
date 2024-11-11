@@ -36,14 +36,15 @@ IP6TABLES='/usr/sbin/ip6tables'
 IPTABLES_SAVE='/usr/sbin/iptables-save'
 IP6TABLES_SAVE='/usr/sbin/ip6tables-save'
 
-# IPTABLES_RESTORE='/usr/sbin/iptables-restore'
-# IP6TABLES_RESTORE='/usr/sbin/ip6tables-restore'
+IPTABLES_RESTORE='/usr/sbin/iptables-restore'
+IP6TABLES_RESTORE='/usr/sbin/ip6tables-restore'
 
 SYSCTL='/usr/sbin/sysctl'
 MODPROBE='/usr/sbin/modprobe'
 LSMOD='/usr/sbin/lsmod'
 CHMOD='/usr/bin/chmod'
 
+RM='/usr/bin/rm'
 
 
 ###########################################################
@@ -2334,6 +2335,17 @@ function create_script_init()
 	done
 
 
+  local v4_store_cmd=''
+  if [ -f "${path_v4}" ]; then
+    v4_store_cmd="${IPTABLES_RESTORE} < '${path_v4}'"
+  fi
+
+  local v6_store_cmd=''
+  if [ -f "${path_v6}" ]; then
+    v6_store_cmd="${IP6TABLES_RESTORE} < '${path_v6}'"
+  fi
+
+
 cat <<EOF
 #!/bin/bash
 
@@ -2353,8 +2365,8 @@ set -e
 PATH="/bin:/sbin:/usr/sbin"
 
 start() {
-  /usr/sbin/iptables-restore < "${path_v4}"
-  /usr/sbin/ip6tables-restore < "${path_v6}"
+  ${v4_store_cmd}
+  ${v6_store_cmd}
   exit 0
 }
 
@@ -2404,6 +2416,130 @@ ExecStart=${path} start
 [Install]
 WantedBy=network-pre.target
 EOF
+}
+
+
+function save_iptabls_dump()
+{
+  local iptables_dump_path=
+  local ip6tables_dump_path=
+
+  while [ $# -gt 0 ]; do
+		case $1 in
+		--iptables-dump )
+			shift
+			iptables_dump_path=$1
+		;;
+
+    --ip6tables-dump )
+			shift
+			ip6tables_dump_path=$1
+		;;
+
+		*)
+			echo_fatal "Invalid optional ${1}"
+		;;
+		esac
+		shift
+	done
+
+
+  if [ ! -d  "${RULE_DIR}" ]; then
+      echo_err "DIR ${RULE_DIR} not exist, try create one"
+      echo_cmd "mkdir -p ${RULE_DIR}"
+      if [ ! -d  "${RULE_DIR}" ]; then
+        echo_fatal "Failed to mkdir ${RULE_DIR}"
+      fi
+  fi
+
+  # Create iptables rule file in /etc/systemd/
+  local rule_file_ok=false
+  local rule_file="${RULE_DIR}/${RULE_FILENAME_v4}".rules
+  # echo_verbose "Remove old rule file:${rule_file} ..."
+  if [ -n "${iptables_dump_path}" ]; then
+    if ! [ -f "${iptables_dump_path}" ]; then
+      echo_fatal "iptables' dump file not exist :${iptables_dump_path}"
+    fi
+    if ! ${IPTABLES_RESTORE} --test ${iptables_dump_path}; then
+      echo_fatal "iptables' dump file parse error :${iptables_dump_path}"
+    fi
+
+    echo_verbose "Create iptables dump file:${rule_file} ..."
+    echo_cmd "rm -f ${rule_file}"
+    echo_cmd "cp --force ${iptables_dump_path} ${rule_file}"
+    if [[ $? == 0 ]]; then
+      rule_file_ok=true
+    else
+      echo_fatal "Failed to create iptables dump file"
+    fi
+  fi
+
+  # Create ip6tables rule file in /etc/systemd/
+  local rule6_file_ok=false
+  local rule6_file="${RULE_DIR}/${RULE_FILENAME_v6}".rules
+  # echo_verbose "Remove old rule file:${rule6_file} ..."
+  if [ -n "${ip6tables_dump_path}" ]; then
+    if ! [ -f "${ip6tables_dump_path}" ]; then
+      echo_fatal "ip6tables' dump file not exist :${ip6tables_dump_path}"
+    fi
+    if ! ${IP6TABLES_RESTORE} --test ${ip6tables_dump_path}; then
+      echo_fatal "ip6tables' dump file parse error :${ip6tables_dump_path}"
+    fi
+
+    echo_verbose "Create ip6tables dump file:${rule6_file} ..."
+    echo_cmd "rm -f ${rule6_file}"
+    echo_cmd "cp --force ${ip6tables_dump_path} ${rule6_file}"
+    if [[ $? == 0 ]]; then
+      rule6_file_ok=true
+    else
+      echo_fatal "Failed to create ip6tables dump file"
+    fi
+  fi
+
+
+  if ${rule_file_ok} && ${rule6_file_ok}; then
+
+    # Create init.d script
+    echo_verbose "Create init.d script:${INITD_SCRIPT_PATH} ..."
+    local initd_script_dir=$(dirname "${INITD_SCRIPT_PATH}")
+    if [ ! -d "${initd_script_dir}" ]; then
+      echo_err "DIR ${initd_script_dir} not exist, try create one"
+      echo_cmd "mkdir -p ${initd_script_dir}"
+      if [ ! -d "${initd_script_dir}" ]; then
+        echo_fatal "Failed to mkdir ${initd_script_dir}"
+      fi
+    fi
+
+    local script_params=''
+    if ${rule_file_ok}; then
+      script_params="${script_params} --path ${rule_file}"
+    fi
+    if ${rule6_file_ok}; then
+      script_params="${script_params} --path-ip6 ${rule6_file}"
+    fi
+
+    create_script_init ${script_params} > "${INITD_SCRIPT_PATH}"
+    echo_cmd "${CHMOD} 0766 ${INITD_SCRIPT_PATH}"
+
+
+
+    # Create systemctl service config.
+    echo_verbose "Create systemd service config:${SYSTEMD_INIT_PATH} ..."
+    local systemd_init_dir=$(dirname ${SYSTEMD_INIT_PATH})
+    if [ ! -d "${systemd_init_dir}" ]; then
+      echo_err "DIR ${systemd_init_dir} not exist, try create one"
+      echo_cmd "mkdir -p ${systemd_init_dir}"
+      if [ ! -d "${systemd_init_dir}" ]; then
+        echo_fatal "Failed to mkdir ${systemd_init_dir}"
+      fi
+    fi
+
+    create_ubuntu_service_config --path "${INITD_SCRIPT_PATH}" > "${SYSTEMD_INIT_PATH}"
+
+  fi
+
+  
+
 }
 
 
@@ -2755,56 +2891,29 @@ function iptables_save()
       echo_cmd "service iptables start"
     elif [[ ${system} == "ubuntu" ]]; then
 
-      if [ ! -d  "${RULE_DIR}" ]; then
-          echo_err "DIR ${RULE_DIR} not exist, try create one"
-          echo_cmd "mkdir -p ${RULE_DIR}"
-          if [ ! -d  "${RULE_DIR}" ]; then
-            echo_fatal "Failed to mkdir ${RULE_DIR}"
-          fi
-      fi
-
-      # save current config
-      RULE_FILE="${RULE_DIR}/${RULE_FILENAME_v4}".rules
-      RULE6_FILE="${RULE_DIR}/${RULE_FILENAME_v6}".rules
-
-      # TODO
-      # local script_file_v4="/etc/network/if-pre-up.d/${RULE_FILENAME_v6}"
-      # local script_file_v6="/etc/network/if-pre-up.d/${RULE_FILENAME_v4}"
-
-      # Create iptables rule file ...
-      echo_verbose "Create iptables rule file ..."
-      echo_verbose "Create file:${RULE_FILE}"
-      echo_cmd "${IPTABLES_SAVE} --file ${RULE_FILE}"
-      echo_verbose "Create file:${RULE6_FILE}"
-      echo_cmd "${IP6TABLES_SAVE} --file ${RULE6_FILE}"
+      echo_verbose 'Save iptables rule ...'
       
-      # Create init.d script
-      echo_verbose "Create init.d script ..."
-      local initd_script_dir=$(dirname "${INITD_SCRIPT_PATH}")
-      if [ ! -d "${initd_script_dir}" ]; then
-        echo_err "DIR ${initd_script_dir} not exist, try create one"
-        echo_cmd "mkdir -p ${initd_script_dir}"
-        if [ ! -d "${initd_script_dir}" ]; then
-          echo_fatal "Failed to mkdir ${initd_script_dir}"
-        fi
-      fi
-      echo_verbose "Create file:${INITD_SCRIPT_PATH}"
-      create_script_init --path "${RULE_FILE}" --path-ip6 "${RULE6_FILE}" > "${INITD_SCRIPT_PATH}"
-      echo_cmd "${CHMOD} 0766 ${INITD_SCRIPT_PATH}"
-
-      # Create systemctl service config.
-      echo_verbose "Create systemd service config ..."
-      local systemd_init_dir=$(dirname ${SYSTEMD_INIT_PATH})
-      if [ ! -d "${systemd_init_dir}" ]; then
-        echo_err "DIR ${systemd_init_dir} not exist, try create one"
-        echo_cmd "mkdir -p ${systemd_init_dir}"
-        if [ ! -d "${systemd_init_dir}" ]; then
-          echo_fatal "Failed to mkdir ${systemd_init_dir}"
-        fi
+      local tmp_path=$(mktemp --directory)
+      if [ -z "${tmp_path}" ]; then
+        echo_fatal "Failed to create a temp directory"
       fi
 
-      echo_verbose "Create file:${SYSTEMD_INIT_PATH}"
-      create_ubuntu_service_config --path "${INITD_SCRIPT_PATH}" > "${SYSTEMD_INIT_PATH}"
+      local iptables_dump_file="${tmp_path}/iptables"
+      echo_cmd "${IPTABLES_SAVE} --file ${iptables_dump_file}"
+      if [[ $? != 0 ]]; then
+        echo_fatal "Failed to dump iptables' rule"
+      fi
+
+      local ip6tables_dump_file="${tmp_path}/ip6tables"
+      echo_cmd "${IP6TABLES_SAVE} --file ${ip6tables_dump_file}"
+      if [[ $? != 0 ]]; then
+        echo_fatal "Failed to dump ip6tables' rule"
+      fi
+
+
+      # Save iptables' dump file and create systemd service restore the dump at launch.
+      save_iptabls_dump --iptables-dump "${iptables_dump_file}" --ip6tables-dump "${ip6tables_dump_file}"
+
       
     else
       :
