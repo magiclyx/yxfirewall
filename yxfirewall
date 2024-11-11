@@ -5,7 +5,8 @@ CMD=$(basename $0)
 VERSION='1.0.0'
 
 SYSCFG_PATH='/etc/sysctl.conf'
-NF_CONNTRACK_CONFIG_PATH='/etc/modprobe.d/nf_conntrack.conf'
+# NF_CONNTRACK_CONFIG_PATH='/etc/modprobe.d/nf_conntrack.conf'
+NF_CONNTRACK_CONFIG_PATH="/etc/modprobe.d/${CMD}.conf"
 
 
 # script config path
@@ -43,7 +44,7 @@ SYSCTL='/usr/sbin/sysctl'
 MODPROBE='/usr/sbin/modprobe'
 LSMOD='/usr/sbin/lsmod'
 CHMOD='/usr/bin/chmod'
-
+TAR='/usr/bin/tar'
 RM='/usr/bin/rm'
 
 
@@ -79,6 +80,232 @@ DEFAULT_PORT=(
 ####################################################################################################
 # 超时相关的配置
 ####################################################################################################
+
+NET_KEY_ARRAY=(
+
+  #该参数决定了，网络设备接收数据包的速率比内核处理这些包的速率快时，允许送到队列的数据包的最大数目，我推荐262144。
+  net.core.netdev_max_backlog
+
+  #该参数指定了每个套接字所允许的最大缓冲区的大小
+  net.core.optmem_max
+
+  #指定了接收套接字缓冲区大小的缺省值（以字节为单位）。
+  net.core.rmem_default
+
+  #指定了接收套接字缓冲区大小的最大值（以字节为单位，我推荐16M。
+  net.core.rmem_max
+
+  #Linux kernel参数，表示socket监听的backlog(监听队列)上限，我推荐65535
+  net.core.somaxconn
+
+  #定义默认的发送窗口大小；对于更大的 BDP 来说，这个大小也应该更大，我推荐。
+  net.core.wmem_default
+
+  #定义发送窗口的最大大小；对于更大的 BDP 来说，这个大小也应该更大，我推荐16M。
+  net.core.wmem_max
+
+  #严谨模式 1 (推荐)
+  #松散模式 0
+  net.ipv4.conf.all.rp_filter
+  net.ipv4.conf.default.rp_filter
+
+  #默认推荐设置是 htcp
+  net.ipv4.tcp_congestion_control
+
+  #关闭tcp_window_scaling
+  #启用 RFC 1323 定义的 window scaling；要支持超过 64KB 的窗口，必须启用该值。
+  net.ipv4.tcp_window_scaling
+
+  #把TCP的直接拥塞通告(tcp_ecn)关掉
+  net.ipv4.tcp_ecn
+
+  #关闭tcp_sack
+  #启用有选择的应答（Selective Acknowledgment），
+  #这可以通过有选择地应答乱序接收到的报文来提高性能（这样可以让发送者只发送丢失的报文段）；
+  #（对于广域网通信来说）这个选项应该启用，但是这会增加对 CPU 的占用。
+  net.ipv4.tcp_sack
+
+  #表示系统同时保持TIME_WAIT套接字的最大数量，我推荐5000
+  net.ipv4.tcp_max_tw_buckets
+
+  #表示SYN队列长度，默认1024，改成8192，可以容纳更多等待连接的网络连接数，我推荐264144。
+  net.ipv4.tcp_max_syn_backlog
+
+  #表示开启SYN Cookies。当出现SYN等待队列溢出时，启用cookies来处理，可防范少量SYN攻击，默认为0，表示关闭；
+  net.ipv4.tcp_syncookies
+
+  #开启TCP时间戳
+  #以一种比重发超时更精确的方法（请参阅 RFC 1323）来启用对 RTT 的计算；为了实现更好的性能应该启用这个选项。
+  net.ipv4.tcp_timestamps
+
+  #表示开启重用。允许将TIME-WAIT sockets重新用于新的TCP连接，默认为0，表示关闭，我推荐开启；
+  net.ipv4.tcp_tw_reuse
+
+  #表示开启TCP连接中TIME-WAIT sockets的快速回收，默认为0，表示关闭。
+  net.ipv4.tcp_tw_recycle
+
+  #表示如果套接字由本端要求关闭，这个参数决定了它保持在FIN-WAIT-2状态的时间。
+  net.ipv4.tcp_fin_timeout
+
+  #表示当keepalive起用的时候，TCP发送keepalive消息的频度。缺省是2小时，改为30分钟，我推荐60秒。
+  net.ipv4.tcp_keepalive_time
+
+  #如果对方不予应答，探测包的发送次数
+  net.ipv4.tcp_keepalive_probes
+
+  #keepalive探测包的发送间隔
+  net.ipv4.tcp_keepalive_intvl
+
+  #确定 TCP 栈应该如何反映内存使用；每个值的单位都是内存页（通常是 4KB）。
+  #第一个值是内存使用的下限。
+  #第二个值是内存压力模式开始对缓冲区使用应用压力的上限。
+  #第三个值是内存上限。在这个层次上可以将报文丢弃，从而减少对内存的使用。对于较大的 BDP 可以增大这些值（但是要记住，其单位是内存页，而不是字节）。
+  net.ipv4.tcp_mem
+
+  #与 tcp_wmem 类似，不过它表示的是为自动调优所使用的接收缓冲区的值。
+  net.ipv4.tcp_rmem
+
+  #为自动调优定义每个 socket 使用的内存。
+  #第一个值是为 socket 的发送缓冲区分配的最少字节数。
+  #第二个值是默认值（该值会被 wmem_default 覆盖），缓冲区在系统负载不重的情况下可以增长到这个值。
+  #第三个值是发送缓冲区空间的最大字节数（该值会被 wmem_max 覆盖）。
+  net.ipv4.tcp_wmem
+
+  #表示用于向外连接的端口范围。缺省情况下很小：32768到61000，改为1024到65000。
+  net.ipv4.ip_local_port_range
+
+  #设置系统对最大跟踪的TCP连接数的限制
+  net.ipv4.netfilter.ip_conntrack_max
+
+  #关闭tcp的连接传输的慢启动，即先休止一段时间，再初始化拥塞窗口。
+  net.ipv4.tcp_slow_start_after_idle
+
+  #路由缓存刷新频率，当一个路由失败后多长时间跳到另一个路由，默认是300。
+  net.ipv4.route.gc_timeout
+
+  #在内核放弃建立连接之前发送SYN包的数量。
+  net.ipv4.tcp_syn_retries
+  #在内核放弃建立连接之前发送SYN-ACK包的数量。
+  net.ipv4.tcp_synack_retries
+
+  # 避免放大攻击
+  net.ipv4.icmp_echo_ignore_broadcasts
+
+  # 开启恶意icmp错误消息保护
+  net.ipv4.icmp_ignore_bogus_error_responses
+
+  #防止不正确的udp包的攻击
+  net.inet.udp.checksum
+
+  #是否接受含有源路由信息的ip包。参数值为布尔值，1表示接受，0表示不接受。
+  #在充当网关的linux主机上缺省值为1，在一般的linux主机上缺省值为0。
+  #从安全性角度出发，建议你关闭该功能。
+  net.ipv4.conf.default.accept_source_route
+
+  #echo "IP forwarding has been set to '1'"
+  net.ipv4.ip_forward
+
+  net.nf_conntrack_max
+)
+
+
+NETFILTER_KEY_ARRAY=(
+
+  net.netfilter.nf_conntrack_acct  
+  net.netfilter.nf_conntrack_buckets
+  net.netfilter.nf_conntrack_checksum
+  net.netfilter.nf_conntrack_count
+  net.netfilter.nf_conntrack_events
+  net.netfilter.nf_conntrack_events_retry_timeout
+  net.netfilter.nf_conntrack_expect_max
+  net.netfilter.nf_conntrack_frag6_high_thresh
+  net.netfilter.nf_conntrack_frag6_timeout
+
+  # 值类型：INTEGER (seconds) 
+  # default 600 
+  # 通用超时的默认值。 这指的是第4层未知/不支持的协议。
+  net.netfilter.nf_conntrack_generic_timeout
+
+  net.netfilter.nf_conntrack_helper
+
+  # ICMP 默认超时时间
+  # 值类型：INTEGER (seconds) 
+  # default 30 
+  net.netfilter.nf_conntrack_icmp_timeout
+  net.netfilter.nf_conntrack_icmpv6_timeout
+
+  net.netfilter.nf_conntrack_log_invalid
+
+  # 一般默认 CONNTRACK_MAX 不会低于 128
+  # 一般大于1GB的系统，CONTRACT_MAX 默认值是 65536
+  # 而内存大于2GB时, yx_estimate_conntrack_max 才会计算出大于65536的值
+  net.netfilter.nf_conntrack_max
+
+  net.netfilter.nf_conntrack_tcp_be_liberal
+  net.netfilter.nf_conntrack_tcp_loose
+  net.netfilter.nf_conntrack_tcp_max_retrans
+
+  # 值类型：INTEGER (seconds) 
+  # default 10
+  net.netfilter.nf_conntrack_tcp_timeout_close
+
+  # CLOSE_WAIT是被动方收到FIN发ACK，然后会转到LAST_ACK发FIN，除非程序写得有问题，正常来说这状态持续时间很短。#默认 60 秒
+  # CLOSE_WAIT 状态是让被动关闭方把该传的数据传完。如果程序写得不好，这里抛了未捕捉的异常，也许就走不到发 FIN 那步了，一直停在这里。
+  net.netfilter.nf_conntrack_tcp_timeout_close_wait
+
+  # 这个值对应的场景是 “双方建立了连接后一直不发包，直到 5天(432000秒)后才发”
+  # established_time(默认 432000秒 5天), 理论上不用这么长，不小于 net.ipv4.tcp_keepalive_time 就行了。
+  # 默认 keep-alive 超时时间只有 2 小时 11 分（`net.ipv4.tcp_keepalive_time + net.ipv4.tcp_keepalive_intvl * net.ipv4.tcp_keepalive_probes`）
+  # 空连接攻击的最佳目标。攻击者把 IP 包头的源地址改成随机 IP，握完手就关 socket，用一台机发请求就能把你的哈希表填满
+  net.netfilter.nf_conntrack_tcp_timeout_established
+
+  #主动方的最后1个状态。默认120秒
+  # default 120
+  net.netfilter.nf_conntrack_tcp_timeout_fin_wait
+
+  # 被动关闭方发 FIN 后如果一直收不到对面的 ACK 或 RST，会不断重发，
+  # 直到超时才 CLOSE。`net.ipv4.tcp_retries2` 的默认值是 15，最多要等 924.6 秒……不过一般都会调小这个值。
+  # 值类型：INTEGER (seconds) 
+  # default 30
+  net.netfilter.nf_conntrack_tcp_timeout_last_ack
+
+  # 值类型：INTEGER (seconds) 
+  # default 300
+  net.netfilter.nf_conntrack_tcp_timeout_max_retrans
+
+  # 类似，故意不发握手的 ACK 即可。但这个超时时间没那么夸张，系统也有 syn cookie 机制来缓解 syn flood 攻击。
+  # 值类型：INTEGER (seconds) 
+  # default 60
+  net.netfilter.nf_conntrack_tcp_timeout_syn_recv
+
+  # 值类型：INTEGER (seconds) 
+  # default 120
+  net.netfilter.nf_conntrack_tcp_timeout_syn_sent
+
+  # - Linux 里的 MSL 写死 60 秒（而不是 TCP 标准里拍脑袋的 120 秒），TIME_WAIT 要等 2MSL，这里 120 算是个合理的值。
+  # - 但现在默认有 PAWS（`net.ipv4.tcp_timestamps`），不会出现标准制定时担心的迷途报文回来碰巧污染了序列号相同的新连接的数据的情况
+  # 互联网公司基本都开 `net.ipv4.tcp_tw_reuse`，既然半连接都不留这么久，记录似乎也不需要留这么久。
+  net.netfilter.nf_conntrack_tcp_timeout_time_wait
+
+  # 值类型：INTEGER (seconds) 
+  # default 300
+  net.netfilter.nf_conntrack_tcp_timeout_unacknowledged
+
+  net.netfilter.nf_conntrack_timestamp
+
+  # 值类型：INTEGER (seconds) 
+  # default 30
+  net.netfilter.nf_conntrack_udp_timeout
+
+  # 值类型：INTEGER (seconds) 
+  # default 180 
+  # 如果检测到UDP流，将使用此扩展超时.
+  net.netfilter.nf_conntrack_udp_timeout_stream
+)
+
+NETFILTER_MOD_CONFIG_KEY_ARRAY=(
+  options#nf_conntrack#hashsize
+)
 
 # Ubuntu 16.04
 # net.netfilter.nf_conntrack_generic_timeout = 600
@@ -620,6 +847,37 @@ function yx_write_config()
 	fi	
 }
 
+function yx_allkeys_config()
+{
+	
+	local file=
+	
+	while [ $# -gt 0 ]; do
+		case $1 in
+			--file )
+				shift
+				file=$1
+			;;
+			
+			*)
+				echo_fatal "Invalid optional ${1}"
+			;;
+		esac
+		shift
+	done
+	
+	
+	if [ -z "${file}" ]; then
+		echo_fatal 'file is empty'
+	fi
+	
+	if [ -f "${file}" ]; then
+		while read line; do
+			echo ${line} | sed -e "s/^[[:space:]]*\(.*\)[[:space:]]*=.*$/\1/g" | grep -o "[^ ]\+\( \+[^ ]\+\)*"
+		done < "${file}"
+	fi
+	
+}
 
 ####################################################################################################
 # Other sysctl operation
@@ -642,6 +900,18 @@ function yx_sysctl_config()
 
     --write )
       option='WRITE'
+    ;;
+
+    --remove )
+      option='REMOVE'
+    ;;
+
+    --exist )
+      option='EXIST'
+    ;;
+
+    --all-keys )
+      option='ALL-KEYS'
     ;;
 
 		--file )
@@ -688,7 +958,7 @@ function yx_sysctl_config()
   if [[ "${option}" == 'READ' ]]; then
 
     if [ -z "${key}" ]; then
-      echo_fatal "Empty value on sysctl config key."
+      echo_fatal "Empty key on sysctl config key."
     fi
 
     yx_read_config --file "${file}" --key "${key}"
@@ -703,7 +973,7 @@ function yx_sysctl_config()
     fi
 
     # write config
-    echo_verbose "Set sysctl config: ${key} = ${val} ..."
+    echo_verbose "Set sysctl config: ${key} = ${val}"
     yx_write_config --file "${file}" --key "${key}" --val "${val}"
 
     #如果需要，立即应用更改
@@ -718,7 +988,23 @@ function yx_sysctl_config()
     else
       return 1
     fi
+  elif [[ "${option}" == 'REMOVE' ]]; then
+      if [ -z "${key}" ]; then
+        echo_fatal "Empty value on sysctl config key."
+      fi
 
+      echo_verbose "Remove sysctl config with key: ${key}"
+      yx_delete_config --file "${file}" --key "${key}"
+      return $?
+
+  elif [[ "${option}" == 'EXIST' ]]; then
+    if [ -z "${key}" ]; then
+      echo_fatal "Empty value on sysctl config key."
+    fi
+    yx_has_config --file "${file}" --key "${key}"
+    return $?
+  elif [[ "${option}" == 'ALL-KEYS' ]]; then
+    yx_allkeys_config --file "${file}"
   else
     if ${refresh}; then
       _refresh_sysctl_config
@@ -728,7 +1014,7 @@ function yx_sysctl_config()
 }
 
 
-function yx_iptable_config()
+function yx_modprobe_config()
 {
   local file=
 	local key=
@@ -751,6 +1037,18 @@ function yx_iptable_config()
 
     --write )
       option='WRITE'
+    ;;
+
+    --exist )
+      option='EXIST'
+    ;;
+
+    --remove )
+      option='REMOVE'
+    ;;
+
+    --all-keys )
+      option='ALL-KEYS'
     ;;
 
 		--key )
@@ -778,16 +1076,19 @@ function yx_iptable_config()
     file="${NF_CONNTRACK_CONFIG_PATH}"
   fi
 
-  if [ -z "${key}" ]; then
-    echo_fatal "Empty value on sysctl config key."
-  fi
-
   if [[ "${option}" == 'READ' ]]; then
+    if [ -z "${key}" ]; then
+      echo_fatal "Empty value on modprobe config key."
+    fi
     yx_read_config --file "${file}" --key "${key}"
   elif [[ "${option}" == 'WRITE' ]]; then
 
+    if [ -z "${key}" ]; then
+      echo_fatal "Empty value on modprobe config key."
+    fi
+
     if [ -z "${val}" ]; then
-      echo_fatal "Empty value on sysctl config val."
+      echo_fatal "Empty value on modprobe config val."
     fi
 
     # write config
@@ -823,6 +1124,23 @@ function yx_iptable_config()
     else
       return 1
     fi
+  elif [[ "${option}" == 'REMOVE' ]]; then
+      if [ -z "${key}" ]; then
+        echo_fatal "Empty value on modprobe config key."
+      fi
+
+      echo_verbose "Remove modprobe config with key: ${key}"
+      yx_delete_config --file "${file}" --key "${key}"
+      return $?
+
+  elif [[ "${option}" == 'EXIST' ]]; then
+    if [ -z "${key}" ]; then
+      echo_fatal "Empty value on modprobe config key."
+    fi
+    yx_has_config --file "${file}" --key "${key}"
+    return $?
+  elif [[ "${option}" == 'ALL-KEYS' ]]; then
+    yx_allkeys_config --file "${file}"
   else
     if ${refresh}; then
       # iptables 配置文件，不能够直接refresh !!
@@ -2816,7 +3134,7 @@ function iptables_save()
           fi
 
           # iptables 变更生效，必须带指定的key和value
-          yx_iptable_config --write --refresh --key "options nf_conntrack hashsize" --val "${hashsize}"
+          yx_modprobe_config --write --refresh --key "options nf_conntrack hashsize" --val "${hashsize}"
         fi
 
       fi
@@ -2883,7 +3201,7 @@ function iptables_save()
 
     local system=$(linux_type)
     if [[ ${system} == "centos" || ${system} == "debian" ]]; then
-      echo_verbose 'Save changes...'
+      echo_verbose 'Save iptables rule ...'
       echo_cmd "service iptables save"
 
       echo_verbose 'Restart iptables services...'
@@ -5064,6 +5382,388 @@ function iptables_handler()
   fi
 }
 
+
+function iptables_storage()
+{
+  local path=
+  local tmp_path=
+  local forece=false
+
+  local info_level=
+
+  local option=$1
+  if ! [[ "${option}" =~ ^-.*$ ]]; then
+    shift
+  else
+    option=
+  fi
+
+  while [ $# -gt 0 ]; do
+		case $1 in
+
+      --path )
+        shift
+        path=$1
+      ;;
+
+      --force )
+        force=true
+      ;;
+
+      --tmp-path )
+        shift
+        tmp_path=$1
+      ;;
+
+      --info-level )
+        shift
+        info_level=$1
+      ;;
+
+      --help )
+        show_help=true
+      ;;
+
+			*)
+        additional="${additional} $1"
+      ;;
+		esac
+		shift
+	done
+
+  if [ -n "${info_level}" ]; then
+    set_info_level "${info_level}"
+  fi
+
+  if [ -z "${path}" ]; then
+    echo_fatal "Path must not be empty, use --path to indicate a buckup path."
+  fi
+
+
+  # Create a temp directory
+  if [ -n "${tmp_path}" ]; then
+    if [ ! -d "${tmp_path}" ]; then
+      echo_err "${tmp_path} does not exist, try to craete one."
+      mkdir -p "${tmp_path}"
+      if [ ! -d "${tmp_path}" ]; then
+        echo_fatal "Failed to create the temp directory:${tmp_path}"
+      fi
+    fi
+  else
+    tmp_path=$(mktemp --directory)
+    if [ -z "${tmp_path}" ]; then
+      echo_fatal "Failed to create a temp directory"
+    fi
+  fi
+
+
+  if strcontains "${option}" 'buckup' --ignorecase; then
+
+    local tmp_tar_path="${tmp_path}/buckup"
+
+    echo_verbose "Buckup iptables rule  ..."
+    # save iptables rule and compress it
+    local tmp_iptables_path="${tmp_path}/iptables"
+    echo_cmd "${IPTABLES_SAVE} --file ${tmp_iptables_path}"
+    if [[ $? != '0' ]]; then
+      echo_fatal "Failed to save iptables's rules"
+    else
+      ${TAR} --create --absolute-names --file="${tmp_tar_path}" -C "${tmp_path}" "iptables"
+    fi
+    local tmp_ip6tables_path="${tmp_path}/ip6tables"
+    echo_cmd "${IP6TABLES_SAVE} --file ${tmp_ip6tables_path}"
+    if [[ $? != '0' ]]; then
+      echo_fatal "Failed to save ip6tables's rules"
+    else
+      ${TAR} --append --absolute-names --file="${tmp_tar_path}" -C "${tmp_path}" "ip6tables"
+    fi
+
+
+    echo_verbose "Buckup net key in sysctl ..."
+    #这里不用 `sysctl -p`, 是希望只备份网络相关配置。 
+    local tmp_netfilter_config="${tmp_path}/net.conf"
+    if [ "${NET_KEY_ARRAY}" ]; then
+      for key in "${NET_KEY_ARRAY[@]}";
+      do
+        local val=$(yx_sysctl_config --read --key "${key}")
+        if [ -n "${val}" ]; then
+          yx_sysctl_config --write --file "${tmp_netfilter_config}" --key "${key}" --val "${val}"
+        fi
+      done
+    fi
+    if [ -f "${tmp_netfilter_config}" ]; then
+      ${TAR} --append --absolute-names --file="${tmp_tar_path}" -C "${tmp_path}" "net.conf"
+    fi
+
+
+    echo_verbose "Buckup netfilter key in sysctl.config ..."
+    #这里不用 `sysctl -p`, 是希望只备份网络相关配置。 
+    local tmp_sysctl_config="${tmp_path}/netfilter.conf"
+    if [ "${NETFILTER_KEY_ARRAY}" ]; then
+      for key in "${NETFILTER_KEY_ARRAY[@]}";
+      do
+        local val=$(yx_sysctl_config --read --key "${key}")
+        if [ -n "${val}" ]; then
+          yx_sysctl_config --write --file "${tmp_sysctl_config}" --key "${key}" --val "${val}"
+        fi
+      done
+    fi
+    if [ -f "${tmp_sysctl_config}" ]; then
+      ${TAR} --append --absolute-names --file="${tmp_tar_path}" -C "${tmp_path}" "netfilter.conf"
+    fi
+
+    echo_verbose "Buckup ${CMD} netfilter module config ..."
+    local tmp_modprobe_netfilter_conig="${tmp_path}/mod_netfilter.conf"
+    if [ "${NETFILTER_MOD_CONFIG_KEY_ARRAY}" ]; then
+      for key in "${NETFILTER_MOD_CONFIG_KEY_ARRAY[@]}";
+      do
+        local fix_key=$(echo ${key} | tr '#' ' ')
+        local val=$(yx_modprobe_config --read --key "${fix_key}")
+        echo "${fix_key}=${val}"
+        if [ -n "${val}" ]; then
+          yx_modprobe_config --write --file "${tmp_modprobe_netfilter_conig}" --key "${key}" --val "${val}"
+        fi
+      done
+    fi
+    if [ -f "${tmp_modprobe_netfilter_conig}" ]; then
+      ${TAR} --append --absolute-names --file="${tmp_tar_path}" -C "${tmp_path}" "mod_netfilter.conf"
+    fi
+
+
+    echo_verbose "Create the buckup file to destionation ..."
+    local destination_dir=$(dirname "${path}")
+    if [ ! -d "${destination_dir}" ]; then
+      echo_err "DIR ${destination_dir} not exist, try create one"
+      mkdir -p ${destination_dir} > /dev/null
+      if [ ! -d  "${destination_dir}" ]; then
+        echo_fatal "Failed to mkdir ${destination_dir}"
+      fi
+    fi
+
+    local force_flag=''
+    if ${force}; then
+      force_flag='--force'
+    fi
+    echo_cmd "cp ${force_flag} ${tmp_tar_path} ${path}"
+
+    echo_verbose "Verify package ..."
+    if ! iptables_storage verify --path "${path}"; then
+      echo_cmd "${RM} -f ${path}"
+      echo_fatal "Verify failed. there is something wrong with new buckup file. delete it"
+    fi
+
+  
+  elif strcontains "${option}" 'restore' --ignorecase; then
+
+      echo_verbose "Verify package ..."
+      # 验证备份文件
+      if ! iptables_storage verify --path "${path}"; then
+        echo_cmd "${RM} -f ${path}"
+        echo_fatal "Verify failed. there is something wrong with new buckup file. delete it"
+      fi
+
+      # 解压到临时目录
+      echo_verbose "Extra to path :${tmp_path} ..."
+      if ! ${TAR} --extract --file="${path}" --directory="${tmp_path}"; then
+        echo_fatal "Failed to extract buckup file"
+      fi
+
+      echo_verbose "Restore iptables'rule ..."
+      # 恢复iptables dump 配置
+      local save_dump_params=''
+      local iptables_path="${tmp_path}/iptables"
+      if [ -f "${iptables_path}" ]; then
+        if ${IPTABLES_RESTORE} --test "${iptables_path}"; then
+          echo_cmd "${IPTABLES_RESTORE} ${iptables_path}"
+          if [[ $? == 0 ]]; then
+            save_dump_params="${save_dump_params} --iptables-dump ${iptables_path}"
+          else
+            echo_fatal "Failed to restore iptables rule from data"
+          fi
+        fi
+      fi
+      # 恢复ip6tables dump 配置
+      local ip6tables_path="${tmp_path}/ip6tables"
+      if [ -f "${ip6tables_path}" ]; then
+        if ${IP6TABLES_RESTORE} --test "${ip6tables_path}"; then
+          echo_cmd "${IP6TABLES_RESTORE} ${ip6tables_path}"
+          if [[ $? == 0 ]]; then
+            save_dump_params="${save_dump_params} --ip6tables-dump ${ip6tables_path}"
+          else
+            echo_fatal "Failed to restore ip6tables rule from data"
+          fi
+        fi
+      fi
+
+      # Save iptables' dump file and create systemd service restore the dump at launch.
+      echo_verbose "Create systemd service to restore the dump at launch ..."
+      save_iptabls_dump ${save_dump_params}
+
+
+      # 恢复net.xxx相关配置
+      if [ "${NET_KEY_ARRAY}" ]; then
+
+        echo_verbose "Clear all net item in sysctl.conf ..."
+        # 删除所有sysctl.conf中net.xxx配置
+        for key in "${NET_KEY_ARRAY[@]}"; do
+          if yx_sysctl_config --exist --key "${key}"; then
+            yx_sysctl_config --remove --key "${key}"
+          fi
+        done
+
+        echo_verbose "Restore net item from storage ..."
+        # 恢复buckup文件中net.xxx配置
+        for key in $(yx_sysctl_config --all-keys --file "${tmp_path}/net.conf"); do
+          local val=$(yx_sysctl_config --read --file "${tmp_path}/net.conf" --key "${key}")
+          if [ -n "${val}" ]; then
+            yx_sysctl_config --write --key "${key}" --val "${val}"
+          fi
+        done
+      fi
+
+
+      # 恢复 netfilter 相关配置
+      if [ "${NETFILTER_KEY_ARRAY}" ]; then
+
+        echo_verbose "Clear all netfilter items in sysctl.conf ..."
+        # 删除所有sysctl.conf中netfilter.xxx配置
+        for key in "${NETFILTER_KEY_ARRAY[@]}"; do
+          if yx_sysctl_config --exist --key "${key}"; then
+            yx_sysctl_config --remove --key "${key}"
+          fi
+        done
+
+        echo_verbose "Restore netfilter item from storage ..."
+        # 恢复buckup文件中netfilter.xxx配置
+        for key in $(yx_sysctl_config --all-keys --file "${tmp_path}/netfilter.conf"); do
+          local val=$(yx_sysctl_config --read --file "${tmp_path}/netfilter.conf" --key "${key}")
+          if [ -n "${val}" ]; then
+            yx_sysctl_config --write --key "${key}" --val "${val}"
+          fi
+        done
+      fi
+      
+      # 恢复modprobe中的配置
+      # 这里**暂时**只针对yxfirewall的配置文件
+      if [ "${NETFILTER_MOD_CONFIG_KEY_ARRAY}" ]; then
+
+        echo_verbose "Clear all items in modprobe/${CMD}.conf ..."
+        # 删除所有sysctl.conf中netfilter.xxx配置
+        for key in "${NETFILTER_MOD_CONFIG_KEY_ARRAY[@]}"; do
+          local fix_key=$(echo ${key} | tr '#' ' ')
+          if yx_modprobe_config --exist --key "${fix_key}"; then
+            yx_modprobe_config --remove --key "${fix_key}"
+          fi
+        done
+
+        echo_verbose "Restore modprobe item from storage ..."
+        # 恢复buckup文件中modprobe.yxfirewall配置
+        for key in $(yx_modprobe_config --all-keys --file "${tmp_path}/mod_netfilter.conf"); do
+          local fix_key=$(echo ${key} | tr '#' ' ')
+          local val=$(yx_modprobe_config --read --file "${tmp_path}/mod_netfilter.conf" --key "${key}")
+          if [ -n "${val}" ]; then
+            yx_modprobe_config --write --key "${fix_key}" --val "${val}"
+          fi
+        done
+      fi
+
+  elif strcontains "${option}" 'verify' --ignorecase; then
+
+    local check_failed=false
+
+    if [ ! -f "${path}" ]; then
+      echo_fatal "File not exist :${path}"
+    fi
+
+    if ! ${check_failed}; then
+      ${TAR} --extract --file="${path}" --directory="${tmp_path}"
+      if [[ $? != 0 ]]; then
+        check_failed=true
+        echo_verbose "Package: extract failed"
+      else
+        echo_verbose "Package: OK"
+      fi
+    fi
+
+    local iptables_path="${tmp_path}/iptables"
+    if ! ${check_failed}; then
+      if ! [ -f "${iptables_path}" ]; then
+        check_failed=true
+        echo_verbose "Package: iptables'rule not exist"
+      else
+        if ! "${IPTABLES_RESTORE}" --test "${iptables_path}"; then
+          check_failed=true
+          echo_verbose "Package: iptables'rule parse failed"
+        else
+          echo_verbose "iptables's rule: OK"
+        fi
+      fi
+    fi
+
+    local ip6tables_path="${tmp_path}/ip6tables"
+    if ! ${check_failed}; then
+      if [ ! -f "${ip6tables_path}" ]; then
+        check_failed=true
+        echo_verbose "Package: ip6tables'rule not exist"
+      else
+        if ! "${IP6TABLES_RESTORE}" --test "${ip6tables_path}"; then
+          check_failed=true
+          echo_verbose "Package: ip6tables'rule parse failed"
+        else
+          echo_verbose "ip6tables's rule: OK"
+        fi
+      fi
+    fi
+
+    local sysctl_path="${tmp_path}/sysctl.conf"
+    if [ -f "${sysctl_path}" ]; then
+      if ! [ -r "${sysctl_path}" ]; then
+        check_failed=true
+        echo_verbose "sysctl.conf: unreadable"
+      else
+        echo_verbose "sysctl.conf: OK"
+      fi
+    else
+      echo_verbose "sysctl.conf: not exist"
+    fi
+
+    local netfilter_path="${tmp_path}/netfilter.conf"
+    if [ -f "${netfilter_path}" ]; then
+      if ! [ -r "${netfilter_path}" ]; then
+        echo_verbose "netfilter.conf: unreadable"
+        check_failed=true
+      else
+        echo_verbose "netfilter.conf: OK"
+      fi
+    else
+      echo_verbose "netfilter.conf: not exist"
+    fi
+
+    local mod_netfilter_path="${tmp_path}/mod_netfilter.conf"
+    if [ -f "${mod_netfilter_path}" ]; then
+      if ! [ -r "${mod_netfilter_path}" ]; then
+        check_failed=true
+        echo_verbose "mod_netfilter.conf: unreadable"
+      else
+        echo_verbose "mod_netfilter.conf: OK"
+      fi
+    else
+      echo_verbose "mod_netfilter.conf: not exist"
+    fi
+
+    if ${check_failed}; then
+      return 1
+    else
+      return 0
+    fi
+
+  fi
+
+
+
+
+}
+
 ####################################################################################################
 # build-in handler
 ####################################################################################################
@@ -7051,7 +7751,6 @@ function ftp_handler()
 	encode_handler ftp_map
 }
 
-
 ####################################################################################################
 # Entry
 ####################################################################################################
@@ -7130,6 +7829,10 @@ elif strcontains "${sub_cmd}" 'config' --ignorecase; then
   iptables_config $@
 elif strcontains "${sub_cmd}" 'handler' --ignorecase; then
   iptables_handler $@
+elif strcontains "${sub_cmd}" 'buckup' --ignorecase; then
+  iptables_storage buckup $@
+elif strcontains "${sub_cmd}" 'restore' --ignorecase; then
+  iptables_storage restore $@
 elif [[ ${sub_cmd} == "--version" ]] || [[ ${sub_cmd} == '-v' ]]; then
   echo "${CMD} ${VERSION}"
   exit 0
