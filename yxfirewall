@@ -2269,7 +2269,7 @@ function usage_chain() {
 
   --name           Indicate the chain name. 
   
-  --custon-only    When list all rules, ignore common rule(INPUT,FORWARD,OUTPUT,PREROUTING,POSTROUTING)
+  --custom-only    When list all rules, ignore common rule(INPUT,FORWARD,OUTPUT,PREROUTING,POSTROUTING)
 
   --chain-io       handle 'chain_name' as 'chain_name_in' and 'chain_name_out'
 
