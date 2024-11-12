@@ -5296,25 +5296,48 @@ function iptables_list()
 
         # display the chain
         echo_cmd "${IPTABLES} ${params} ${chain}"
-
-        # display all reference chain and rule
-        for chain_name in $(iptables_chain list); do
-
-          # ignore the chain
-          if [[ ${chain_name} == ${chain} ]]; then
-            continue
-          fi
-
+        if [[ $? == 0 ]]; then
           # display all reference chain and rule
-          if ${reference}; then
-            if ${IPTABLES} -L "${chain_name}" | tail -n +3 | awk '{print $1}' | grep -Eq "^${chain}\W*$"; then
-              echo ""
-              ${IPTABLES} ${params} ${chain_name} | head -n 2
-              ${IPTABLES} ${params} ${chain_name} | tail -n +3 | grep "${chain}"
+          for chain_name in $(iptables_chain list); do
+
+            # ignore the chain
+            if [[ ${chain_name} == ${chain} ]]; then
+              continue
             fi
+
+            # display all reference chain and rule
+            if ${reference}; then
+              if ${IPTABLES} -L "${chain_name}" | tail -n +3 | awk '{print $1}' | grep -Eq "^${chain}\W*$"; then
+                echo ""
+                ${IPTABLES} ${params} ${chain_name} | head -n 2
+                ${IPTABLES} ${params} ${chain_name} | tail -n +3 | grep "${chain}"
+              fi
+            fi
+          done
+        else # End of (if [[ $? == 0 ]];)
+
+          
+          # list 命令到这里已经失败了, 下面是尝试给出更友善的错误提示。
+
+          local -a searched_chain
+          for test_chain in "${chain}_in" "${chain}_out"; do
+            if iptables_chain exist --name "${test_chain}"; then
+              searched_chain=(${searched_chain[@]} "${test_chain}")
+            fi
+          done
+
+          if [[ ${#searched_chain[@]} != 0 ]]; then
+          	local SAVEIFS=$IFS
+            IFS=','
+            local chain_list_str="${searched_chain[*]}"
+            IFS=${SAVEIFS}
+
+            echo_fatal "Incompatible chain name '${chain}'. There ares some similar names(${chain_list_str}), or you can add '--chain-io' to your list command"
+          else
+            echo_fatal "Incompatible chain name '${chain}'."
           fi
 
-        done
+        fi
 
       fi # end of(if ${chain_io}; then)
 
