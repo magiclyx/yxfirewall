@@ -1,29 +1,82 @@
 #!/bin/bash
 
 
+
 ###########################################################
-# IP 定义
-# 根据需要定义。 它不必被定义就可以工作。
+# 配置
 ###########################################################
 
-# 无条件丢弃的列表（array）
-DENY_HOSTS=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+)
+# 回环
+LOOP_BACK=false
+
+# 仅支持https
+HTTPS_ONLY=false
+
+# 首次运行
+FIRST_LAUNCH=true
+
+# 日志级别(SILENT, FATAL, ERROR, VERBOSE, 或可直接使用0-99数字), 不更改可以留空
+LOG_Level=VERBOSE
+
+# 备份路径
+BUCKUP_PATH=~/Desktop/test/buckup
+
+# 脚本名称
+APPNAME=yxfirewall
+
+###########################################################
+# Host 定义
+###########################################################
+
+# 无条件丢弃的列表
+DENY_HOSTS=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+) or \*
+  11.14.155.16
+  11.14.155.17
 )
 
-# 允许的内网范围 (Array)
-LOCAL_NET=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+)
-#    \*
-#    lo+
+# 允许进入的列表
+INCOMING_HOST=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+) or \*
+  12.14.155.16
+  12.14.155.16
 )
 
-# 可信主机 (Array）
-ALLOW_HOSTS=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+)
+# 允许出去的列表
+OUTGOING_HOST=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+) or \*
+  13.14.155.16
+  13.14.155.16
 )
 
-# 限制信任主机 (Array)
-LIMITED_LOCAL_NET=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+)
+# 无条件信任列表 (谨慎使用)
+FULL_TRUST_HOSTS=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+) or \*
+  14.14.155.16
+  14.14.155.16
+  en0
 )
 
+###########################################################
+# 协议相关Host
+###########################################################
+
+SSH_HOSTS=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+) or \*
+    10.12.13.2
+)
+
+ICMP_HOSTS=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+) or \*
+    10.12.13.2
+)
+
+WEB_HOSTS=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+) or \*
+    \*
+)
+
+FTP_PORTS_RANGE='5000:5100'
+FTP_HOSTS=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+) or \*
+    10.12.13.2
+)
+
+# 可通过配置文件，修改port号。 
+# 也可在命令中直接指定 --port 参数
+# sudo ./yxfirewall config rule.ssh --remove --key port
 
 ###########################################################
 # SNAT 定义
@@ -39,216 +92,222 @@ SNAT_LAN_LIST=(
 
 
 ###########################################################
-# 端口定义
+# Function
 ###########################################################
-
-SSH=22
-FTP=20,21
-DNS=53
-SMTP=25,465,587
-POP3=110,995
-IMAP=143,993
-HTTP=80,443
-IDENT=113
-NTP=123
-MYSQL=3306
-NET_BIOS=135,137,138,139,445
-DHCP=67,68
-
-
+function echo_noti() {(>&1 echo "$(tput setaf 4)"${*}"$(tput sgr0)") }
+function echo_info() {(>&1 echo "$(tput setaf 2)"${*}"$(tput sgr0)") }
+function echo_warn() {(>&2 echo "$(tput setaf 3)"${*}"$(tput sgr0)") }
+function echo_cmd() { echo "$@"; $@;}
 
 ###########################################################
-# 设置调试日志级别为 Debug, 并保存之前的配置
+# 提示:测试脚本，不要用于生产环境
 ###########################################################
-info_level_buckup=$(sudo ./firewall config --read --key info.level)
-sudo ./firewall config --write --key info.level --val debug
+echo_warn "============================================================"
+echo_warn "!!!! Test script, do not use in a production environment !!!!"
+echo_warn "============================================================"
+
+###########################################################
+# 首次运行
+###########################################################
+
+CREATED_FILES=(
+  /etc/modprobe.d/"${APPNAME}".conf
+  /etc/systemd/system/"${APPNAME}".service
+  /etc/init.d/"${APPNAME}"
+
+  /etc/yuxi/"${APPNAME}"/iptables.rules
+  /etc/yuxi/"${APPNAME}"/ip6tables.rules
+  /etc/yuxi/"${APPNAME}"
+  
+  /var/lib/yuxi/"${APPNAME}"/config.conf
+  /var/lib/yuxi/"${APPNAME}"/rule
+  /var/lib/yuxi/"${APPNAME}"
+)
+
+if ${FIRST_LAUNCH}; then
+  if [ "${CREATED_FILES}" ]; then
+    echo_noti "========================================================================================================================"
+    echo_noti "Run as first launch ..."
+    echo_noti "========================================================================================================================"
+    for path in "${CREATED_FILES[@]}"; do
+      echo_cmd "sudo rm -rf ${path}"
+    done
+  fi
+
+  if [ -n "${BUCKUP_PATH}" ]; then
+    echo_cmd "sudo rm -r ${BUCKUP_PATH}"
+  fi
+fi
+
+
+
+
+###########################################################
+# 设置调试日志级别, 并保存之前的配置
+###########################################################
+if [ -n "${LOG_Level}" ]; then
+    echo_noti "========================================================================================================================"
+    echo_noti "Change output level to '${LOG_Level}'..."
+    echo_noti "========================================================================================================================"
+    # 先备份之前的配置
+    info_level_buckup=$(sudo ./yxfirewall config --read --key info.level)
+    # 更改全局日志配置, 这里使用了`--info-level`参数，确保当前命令也有正确的日志输出
+    sudo ./yxfirewall config --write --key info.level --val "${LOG_Level}" --info-level "${LOG_Level}"
+fi
+
+
+###########################################################
+# 执行前，备份当前防火墙配置
+###########################################################
+echo_noti "========================================================================================================================"
+echo_noti "Buckup & Restore"
+echo_noti "========================================================================================================================"
+if [ -n "${BUCKUP_PATH}" ]; then
+  # 测试备份
+  echo_info "Buckup current network configuration ..."
+  sudo ./yxfirewall buckup --path "${BUCKUP_PATH}"
+  # 测试恢复
+  echo_info "Restore network configuration from buckup file ..."
+  sudo ./yxfirewall restore --path "${BUCKUP_PATH}"
+fi
 
 
 ###########################################################
 # 初始化 Iptables
 ###########################################################
-sudo ./firewall start  # 启动服务
-sudo ./firewall clear  # 清空所有规则
-sudo ./firewall default DROP --all  # 设置所有规则的默认行为是Drop
+echo_noti "========================================================================================================================"
+echo_noti "Initialize..."
+echo_noti "========================================================================================================================"
 
-
-###########################################################
-# 攻击防护：broadcast
-###########################################################
-sudo ./firewall Server DROP --rule "BROADCAST_SRV" --proto wall-broadcast --log firewall_broadcast:-
-
-###########################################################
-# 攻击防护：syn flood
-###########################################################
-sudo ./firewall Server DROP  --rule "SYN_FLOOD" --proto wall-synflood --log firewall_synflood:-
-
-###########################################################
-# 攻击防护：bad package
-###########################################################
-sudo ./firewall Server DROP --rule "PKG_SRV" --proto wall-pkg --log  firewall_invalid_package:-
-
-###########################################################
-# 攻击防护：stealth scan
-###########################################################
-sudo ./firewall Server DROP  --rule "PKG_SCAN" --proto wall-scan --log firewall_stealth_scan:-
-
-###########################################################
-# 攻击防护：icmp
-# 默认地,所有丢弃的 ICMP 包都不记录日志. "冲击波" 以及 "蠕虫" 会导致系统发起大量
-###########################################################
-sudo ./firewall Server ACCEPT  --rule "ICMP_SRV" --proto icmp
-# sudo ./firewall Client DROP --rule "ICMP_CLIENT" --proto icmp
-
-###########################################################
-# 攻击防护：SSH 暴力破解
-# 为使用密码认证的服务器准备密码暴力攻击。
-# 如果 SSH 服务器开启了密码认证，请取消注释掉以下内容。
-###########################################################
-sudo ./firewall Server ACCEPT --proto ssh --rule "SSH_SRV" --ip 10.12.13.2 --log ssh_brute_force:-
-
-###########################################################
-# 攻击防护：HTTP/HTTPS 
-###########################################################
-sudo ./firewall Server ACCEPT --proto http --rule "HTTP_SRV" --log http_dos:-
-sudo ./firewall Server ACCEPT --proto https --rule "HTTPS_SRV" --log https_dos:-
-
-###########################################################
-# 攻击防护：FTP
-###########################################################
-# FTP, 一定要设置一个端口范围，否则会开放全部端口
-sudo ./firewall Server ACCEPT --proto ftp --port 3000:3100 --rule "FTP_SRV"
-
-sudo ./firewall filter --list
-
-# sudo iptables -F; sudo iptables -X; sudo iptables -Z
-# sudo iptables -F
-# sudo iptables -X
-# sudo iptables -Z
-# sudo iptables -F
-# sudo iptables -X
-# sudo iptables -Z
-# sudo iptables -F
-# sudo iptables -X
-# sudo iptables -Z
-
-
-exit 0
+sudo ./yxfirewall start  # 启动服务
+echo_info "Clear all rule..."
+sudo ./yxfirewall clear  # 清空所有规则
+echo_info "Set default policy..."
+sudo ./yxfirewall default DROP --all  # 设置所有规则的默认行为是Drop
 
 
 ###########################################################
 # 放弃来自 $DENY_HOSTS 的访问
 ###########################################################
-if [ "${DENY_HOSTS}" ]
-then
-	for host in "${DENY_HOSTS[@]}";
-	do
-      sudo ./firewall incoming drop --net "${host}" --log deny_host:limit:1/s
+
+if [ "${DENY_HOSTS}" ]; then
+  echo_noti "========================================================================================================================"
+  echo_noti "Test deny hosts..."
+  echo_noti "========================================================================================================================"
+	for host in "${DENY_HOSTS[@]}"; do
+      sudo ./yxfirewall incoming drop --net "${host}" --log firewall-denyhost:limit:1/s
 	done
 fi
 
-###########################################################
-# 攻击防护：隐身扫描
-###########################################################
-sudo ./firewall filter DROP --rule STEALTH_SCAN --log 'stealth_scan_attack'
-
-# 看似隐身扫描的数据包会跳转到“STEALTH_SCAN”链
-sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag SYN,ACK SYN,ACK --state NEW
-sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag ALL NONE
-
-sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag SYN,FIN SYN,FIN
-sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag SYN,RST SYN,RST
-sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag ALL SYN,RST,ACK,FIN,URG
-
-sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag FIN,RST FIN,RST
-sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag ACK,FIN FIN #TODO 这个好像有问题
-sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag ACK,PSH PSH
-sudo ./firewall filter STEALTH_SCAN --rule INPUT --proto tcp --proto-flag ACK,URG URG
 
 ###########################################################
-# 攻击防护：端口扫描碎片报文、DOS 攻击
-# namap -v -sF 等度量
-# TODO 这里抛弃了所有碎片, 
+# 通用防护
 ###########################################################
-# sudo ./firewall incoming ACCEPT --fragment --limit 1000/s
-sudo ./firewall incoming DROP --fragment --log 'fragment_packet'
+echo_noti "========================================================================================================================"
+echo_noti "Test Common guard rule..."
+echo_noti "========================================================================================================================"
 
-###########################################################
-# 攻击防护：Ping of Death
-###########################################################
-# 10 次 ping 超过每秒 1 次后丢弃
-sudo ./firewall filter RETURN --rule PING_OF_DEATH --proto icmp --proto-flag echo-request --limit limit-upto:t_PING_OF_DEATH:1/s:10:srcip:::3000
-
-
-# # 丢弃超出限制的ICMP
-sudo ./firewall filter DROP --rule PING_OF_DEATH --log ping_of_death_attack
-
-
-# # ICMP跳转到“PING_OF_DEATH”链
-sudo ./firewall incoming PING_OF_DEATH --proto icmp --proto-flag echo-request
+# 攻击防护：broadcast
+echo_info "Block broadcast package..."
+sudo ./yxfirewall Server Block --proto wall-broadcast --chain "FW_BROADCAST" --log firewall-broadcast:-
+# 攻击防护：bad package
+echo_info "Block bad package..."
+sudo ./yxfirewall Server Block --proto wall-pkg --chain "FW_PKG" --log firewall-invalid-package:-
+# 攻击防护：syn flood
+echo_info "Block syn-flood attack..."
+sudo ./yxfirewall Server Block --proto wall-synflood --chain "FW_SYNFLOOD" --log firewall-synflood:-
+# 攻击防护：stealth scan
+echo_info "Block steal-scan..."
+sudo ./yxfirewall Server Block --proto wall-scan --chain "FW_STEALTHSCAN" --log firewall-stealthscan:-
 
 
 ###########################################################
-# 攻击防护：SYN Flood 攻击
-# 除了此措施外，您还应该启用 Syn cookie。
+# loopback
 ###########################################################
-# sudo ./firewall rule create --rule 'SYN_FLOOD'
-sudo ./firewall filter RETURN --rule SYN_FLOOD --proto tcp --syn --limit limit-upto:t_SYN_FLOOD:200/s:3:srcip:::3000
+echo_noti "========================================================================================================================"
+echo_noti "Test Loopback"
+echo_noti "========================================================================================================================"
 
-# 丢弃超过限制的 SYN 报文
-sudo ./firewall filter DROP --rule SYN_FLOOD --log syn_flood_attack
-
-# SYN 数据包跳转到 “SYN_FLOOD” 链
-sudo ./firewall incoming SYN_FLOOD --proto tcp --syn 
-
-
-###########################################################
-# 攻击防护：IDENT 端口探测
-# 标识，以帮助攻击者为未来的攻击做好准备，或使用用户的
-# 进行端口勘测，查看系统是否容易受到攻击
-# 可能。
-# DROP 会减少邮件服务器等的响应，所以 REJECT
-###########################################################
-sudo ./firewall incoming REJECT --proto tcp --port "${IDENT}" --reject-with tcp-reset
-
+if ${LOOP_BACK}; then
+ sudo ./yxfirewall loopback Enable
+else
+  sudo ./yxfirewall loopback Disable
+fi
 
 ###########################################################
+# 常用的协议
+###########################################################
+
+# 攻击防护：icmp
+# 默认地,所有丢弃的 ICMP 包都不记录日志. "冲击波" 以及 "蠕虫" 会导致系统发起大量
+# 这里了还是记了日志，因为只对特定ip开放
+if [ "${ICMP_HOSTS}" ]; then
+  echo_noti "========================================================================================================================"
+  echo_noti "Test ICMP host rule..."
+  echo_noti "========================================================================================================================"
+  for net in "${ICMP_HOSTS[@]}"; do
+    ip_params=''
+    if [[ ${net} != '*' ]]; then
+      ip_params="--net ${net}"
+    fi
+      sudo ./yxfirewall Server ACCEPT --proto icmp --chain "FW_ICMP" ${ip_params} --log firewall-icmp:-
+  done
+fi
+
+
 # 攻击防护：SSH 暴力破解
-# SSH为使用密码认证的服务器准备密码暴力攻击。
-# 每分钟只允许 5 次连接尝试。
-# REJECT 而不是 DROP 以防止 SSH 客户端重复重新连接。
+# 为使用密码认证的服务器准备密码暴力攻击。
 # 如果 SSH 服务器开启了密码认证，请取消注释掉以下内容。
-###########################################################
-sudo ./firewall incoming --proto tcp --syn --port "${SSH}" --limit recent-set:ssh_attack2
-sudo ./firewall incoming REJECT-WITH tcp-reset --proto tcp --syn --port "${SSH}" --limit recent-check:ssh_attack:60:5 --log ssh_brute_force:-
+if [ "${SSH_HOSTS}" ]; then
+  echo_noti "========================================================================================================================"
+  echo_noti "Test SSH host rule..."
+  echo_noti "========================================================================================================================"
+  for net in "${SSH_HOSTS[@]}"; do
+    ip_params=''
+    if [[ ${net} != '*' ]]; then
+      ip_params="--net ${net}"
+    fi
+      sudo ./yxfirewall Server ACCEPT --proto ssh --chain "FW_SSH" ${ip_params} --log firewall-ssh:-
+  done
+fi
 
 
+# 攻击防护：HTTP/HTTPS 
+if [ "${WEB_HOSTS}" ]; then
+  echo_noti "========================================================================================================================"
+  echo_noti "Test Web host rule..."
+  echo_noti "========================================================================================================================"
+  for net in "${WEB_HOSTS[@]}"; do
+    ip_params=''
+    if [[ ${net} != '*' ]]; then
+      ip_params="--net ${net}"
+    fi
+      sudo ./yxfirewall Server ACCEPT --proto https --chain "FW_HTTPS" ${ip_params} --log firewall-https:-
+      if ! ${HTTPS_ONLY}; then
+          sudo ./yxfirewall Server ACCEPT --proto http --chain "FW_HTTP" ${ip_params} --log firewall-http:-
+      fi
+  done
+fi
 
-###########################################################
-# 攻击防护：FTP 暴力破解
-# FTP用于密码认证，因此为密码暴力攻击做好了准备。
-# 每分钟只允许 5 次连接尝试。
-# REJECT 代替 DROP 以防止 FTP 客户端重复重新连接。
-# 如果您运行的是 FTP 服务器，请取消注释以下内容。
-###########################################################
-sudo ./firewall incoming --proto tcp --syn --port "${FTP}" --limit recent-set:ftp_attack
-sudo ./firewall incoming REJECT-WITH tcp-reset --proto tcp --syn --port "${FTP}" --limit recent-check:ftp_attack:60:5 --log ftp_brute_force:-
 
+# 攻击防护：FTP
+# FTP, 一定要设置一个端口范围，否则会开放全部端口
+if [ "${FTP_HOSTS}" ]; then
+  echo_noti "========================================================================================================================"
+  echo_noti "Test FTP host rule..."
+  echo_noti "========================================================================================================================"
+  for net in "${FTP_HOSTS[@]}"; do
+    ip_params=''
+    if [[ ${net} != '*' ]]; then
+      ip_params="--net ${net}"
+    fi
 
-###########################################################
-# 发往所有主机（广播地址、组播地址）的数据包将被丢弃。
-###########################################################
-
-BROAD_HOSTS=( # "xxx.xxx.xxx.xxx"
-    192.168.1.255
-    255.255.255.255
-    224.0.0.1
-)
-
-if [ "${BROAD_HOSTS}" ]
-then
-    for ip in "${BROAD_HOSTS[@]}"; do
-    sudo ./firewall incoming DROP --ip "${ip}" --log drop_broadcast
-    done
+    port_params=''
+    if [ -n ${FTP_PORTS_RANGE} ]; then
+      port_params="--port ${FTP_PORTS_RANGE}"
+    fi
+      sudo ./yxfirewall Server ACCEPT --proto ftp ${port_params} --chain "FTP_SRV" ${ip_params}
+  done
 fi
 
 
@@ -256,100 +315,119 @@ fi
 # SNAT设置
 ###########################################################
 
-if [ -n "${SNAT_WAN}" ]  && [ "${SNAT_LAN_LIST}" ]
-then
-  for lan in "${SNAT_LAN_LIST[@]}"
-  do
-    sudo ./firewall nat --snat --from-inter "${lan}" --to-inter "${SNAT_WAN}" --log firewall-forward:
+if [ -n "${SNAT_WAN}" ]  && [ "${SNAT_LAN_LIST}" ]; then
+  echo_noti "========================================================================================================================"
+  echo_noti "Test SNAT..."
+  echo_noti "========================================================================================================================"
+  for lan in "${SNAT_LAN_LIST[@]}"; do
+    sudo ./yxfirewall nat --snat --from-inter "${lan}" --to-inter "${SNAT_WAN}" --log firewall-forward:
   done
 fi
 
 
 ###########################################################
-# 允许的受信任主机
+# 受信主机
 ###########################################################
 
-# 本地网络
-# 如果设置了 $LOCAL_NET，则允许与局域网上的其他服务器通信
-if [ "${LOCAL_NET}" ];
-then
-    for net in "${LOCAL_NET[@]}";
-    do
-        sudo ./firewall incoming ACCEPT --net "${net}"
-    done
+if [ "${INCOMING_HOST}" ]; then
+  echo_noti "========================================================================================================================"
+  echo_noti "Test incoming host..."
+  echo_noti "========================================================================================================================"
+  for host in "${INCOMING_HOST[@]}"; do
+    sudo ./yxfirewall Server ACCEPT --net "${host}"
+  done
 fi
 
-
-# 可信主机
-# 如果设置了 $ALLOW_HOSTS，则允许与该主机交互
-if [ "${ALLOW_HOSTS}" ]
-then
-    for host in "${ALLOW_HOSTS[@]}";
-    do
-      sudo ./firewall incoming ACCEPT --net "${host}"
-    done
+if [ "${OUTGOING_HOST}" ]; then
+  echo_noti "========================================================================================================================"
+  echo_noti "Test outgoing host..."
+  echo_noti "========================================================================================================================"
+  for host in "${OUTGOING_HOST[@]}"; do
+    sudo ./yxfirewall Client ACCEPT --net "${host}"
+  done
 fi
 
-###########################################################
-# 来自所有主机的输入 （ANY）
-###########################################################
-
-# ICMP：配置 Ping 响应
-# iptables -A INPUT -p icmp -j ACCEPT # ANY -> SELF
-
-# HTTP, HTTPS
-# iptables -A INPUT -p tcp -m multiport --dports $HTTP -j ACCEPT # ANY -> SELF
-
-# SSH：如果要限制主机，请将受信任的主机写入TRUST_HOSTS并注释掉以下内容。
-# iptables -A INPUT -p tcp -m multiport --dports $SSH -j ACCEPT # ANY -> SEL
-
-# FTP
-# iptables -A INPUT -p tcp -m multiport --dports $FTP -j ACCEPT # ANY -> SELF
-
-# DNS
-# iptables -A INPUT -p tcp -m multiport --sports $DNS -j ACCEPT # ANY -> SELF
-# iptables -A INPUT -p udp -m multiport --sports $DNS -j ACCEPT # ANY -> SELF
-
-# SMTP
-# iptables -A INPUT -p tcp -m multiport --sports $SMTP -j ACCEPT # ANY -> SELF
-
-# POP3
-# iptables -A INPUT -p tcp -m multiport --sports $POP3 -j ACCEPT # ANY -> SELF
-
-# IMAP
-# iptables -A INPUT -p tcp -m multiport --sports $IMAP -j ACCEPT # ANY -> SELF
-
+if [ "${FULL_TRUST_HOSTS}" ]; then
+  echo_noti "========================================================================================================================"
+  echo_noti "Test full-trust host..."
+  echo_noti "========================================================================================================================"
+  for host in "${FULL_TRUST_HOSTS[@]}"; do
+    sudo ./yxfirewall incoming ACCEPT --net "${host}"
+    sudo ./yxfirewall outgoing ACCEPT --net "${host}"
+  done
+fi
 
 
 ###########################################################
 # 其他
 # 如果上述规则不适用，则记录并丢弃
 ###########################################################
-sudo ./firewall incoming DROP --log drop
+echo_noti "========================================================================================================================"
+echo_noti "Drop any other connect..."
+echo_noti "========================================================================================================================"
+sudo ./yxfirewall incoming DROP --log firewall-drop
 
-
-
-###########################################################
-# 恢复之前的配置
-###########################################################
-if [ -n "${info_level_buckup}" ]; then
-    sudo ./firewall config --write --key info.level --val "${info_level_buckup}"
-else
-    sudo ./firewall config --remove --key info.level
-fi
 
 ###########################################################
 # 保存 Iptables
 ###########################################################
-sudo ./firewall save --log-input firewall-input-drop:
+echo_noti "========================================================================================================================"
+echo_noti "Save changes..."
+echo_noti "========================================================================================================================"
+# sudo ./yxfirewall save --memsize 3G
+sudo ./yxfirewall save --memsize 3G
 
+
+###########################################################
+# 重置Info.level
+###########################################################
+echo_noti "========================================================================================================================"
+echo_noti "Reset Info.level ..."
+echo_noti "========================================================================================================================"
+if [ -n "${info_level_buckup}" ]; then
+    sudo ./yxfirewall config --write --key info.level --val "${info_level_buckup}"
+else
+    sudo ./yxfirewall config --remove --key info.level
+fi
+
+
+###########################################################
+# 显示Handler信息
+###########################################################
+echo_noti "========================================================================================================================"
+echo_noti "Reset Info.level ..."
+echo_noti "========================================================================================================================"
+sudo ./yxfirewall handler list
 
 ###########################################################
 # 显示配置信息
 ###########################################################
-echo -ne "\n\n"
-echo "####################################################################################################"
-sudo ./firewall filter --list
-echo -ne "\n\n"
-sudo ./firewall nat --list
+echo_noti "========================================================================================================================"
+echo_noti "List all chains ...."
+echo_noti "========================================================================================================================"
+# echo "Test list"
+for chain in $(sudo ./yxfirewall chain list --custom-only --chain-io); do
+  fixed_chain=$(echo "${chain}" | sed -e "s/^\(.*\)(.*)$/\1/g")
+  echo_info '------------------------------------------------------------'
+  echo_info "list ${fixed_chain} ..."
+  sudo ./yxfirewall list "${fixed_chain}" --chain-io --reference
+done
+
+
+###########################################################
+# 显示Nat信息
+###########################################################
+echo_noti "========================================================================================================================"
+echo_noti "List Nat information ...."
+echo_noti "========================================================================================================================"
+if [ -n "${SNAT_WAN}" ]  && [ "${SNAT_LAN_LIST}" ]; then
+  sudo ./yxfirewall list FORWARD
+fi
+
+
+# echo -ne "\n\n"
+# echo "####################################################################################################"
+# sudo ./yxfirewall list
+# echo -ne "\n\n"
+# sudo ./yxfirewall list --table nat
 
