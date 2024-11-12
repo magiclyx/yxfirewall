@@ -3011,10 +3011,12 @@ function iptables_config()
         echo_fatal "${CMD} --write must provide value property, using --val"
       fi
 
-      if yx_has_config --file "${config_file}" --key "${key}"; then
-        echo_verbose "config remove(key=${key} domain=${domain}) on file:${config_file}"
-        yx_delete_config --file "${config_file}" --key "${key}"
-      fi
+      # 修改了conig脚本，可选择是否支持重复key，所以不需要先删除再添加了。
+      # 这个先注释掉，面的逻辑有问题
+      # if yx_has_config --file "${config_file}" --key "${key}"; then
+      #   echo_verbose "config remove(key=${key} domain=${domain}) on file:${config_file}"
+      #   yx_delete_config --file "${config_file}" --key "${key}"
+      # fi
 
       echo_verbose "config write(key=${key} val=${val} domain=${domain}) on file:${config_file}"
       yx_write_config --file "${config_file}" --key "${key}" --val "${val}"
