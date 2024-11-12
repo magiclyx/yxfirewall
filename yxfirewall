@@ -2597,7 +2597,7 @@ EOF
 function usage_handler()
 {
 cat <<EOF
-  usage: ${CMD} handler llist [--protocol] 
+  usage: ${CMD} handler list [--protocol] 
   List handler information in the selected protocol. If no protocol is selected, a handler-list will display
 
   usage: ${CMD} list <--help|-h> 
@@ -2605,9 +2605,10 @@ cat <<EOF
 
 
   The following options are allowed:
-  --protocol       specifiec a protocol to show detail handler information.
+  --protocol       Specifiec a protocol to show detail handler information.
 
 
+  --retraction     Controls the number of spaces to shrink
   --info-level     Command output level. 
                    The specific level can be one of 'silent', 'fatal', 'error', 'verbose',
                     or a number greater than 0.
@@ -5402,7 +5403,7 @@ function iptables_handler()
     fi
 
     if [ -z ${option} ]; then
-      echo_fatal 'iptables port need at least one params [Regist, Unregist, List]'
+      echo_fatal 'iptables port need at least one params [List]'
     fi
 
 
