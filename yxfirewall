@@ -2623,6 +2623,42 @@ cat <<EOF
 EOF
 }
 
+
+function usage_storage()
+{
+cat <<EOF
+  usage: ${CMD} buckup <--path path> [--force] 
+  Buckup current configuration, include iptables' rule, network and netfilter optimization parameters.
+
+  usage: ${CMD} restore <--path path> [--force]
+  Restore all network configurate from a buckup file.
+
+  usage: ${CMD} --help
+  For this help information.
+
+
+  The following options are allowed:
+
+  --path       Path of the buckup file.
+  --force      if an existing buckup file exist, remove it and try again.
+
+  --tmp-path   Indicate a directory to storage mid files. for debugging.
+
+  --info-level     Command output level. 
+                   The specific level can be one of 'silent', 'fatal', 'error', 'verbose',
+                    or a number greater than 0.
+
+                   You can use ${CMD} config to get or set it as the global value. 
+                     ${CMD} config --write --key info.level --val debug
+                     ${CMD} config --read --key info.level
+
+                     Use '${CMD} config --help' to see more information.
+
+  Other options
+  Use '${CMD} --help' show all help information 
+EOF
+}
+
 ####################################################################################################
 # conf
 ####################################################################################################
@@ -5390,6 +5426,7 @@ function iptables_storage()
   local forece=false
 
   local info_level=
+  local show_help=false
 
   local option=$1
   if ! [[ "${option}" =~ ^-.*$ ]]; then
@@ -5431,333 +5468,340 @@ function iptables_storage()
 		shift
 	done
 
-  if [ -n "${info_level}" ]; then
-    set_info_level "${info_level}"
-  fi
-
-  if [ -z "${path}" ]; then
-    echo_fatal "Path must not be empty, use --path to indicate a buckup path."
-  fi
-
-
-  # Create a temp directory
-  if [ -n "${tmp_path}" ]; then
-    if [ ! -d "${tmp_path}" ]; then
-      echo_err "${tmp_path} does not exist, try to craete one."
-      mkdir -p "${tmp_path}"
-      if [ ! -d "${tmp_path}" ]; then
-        echo_fatal "Failed to create the temp directory:${tmp_path}"
-      fi
-    fi
+  if ${show_help}; then
+    usage_storage
+    exit 0
   else
-    tmp_path=$(mktemp --directory)
-    if [ -z "${tmp_path}" ]; then
-      echo_fatal "Failed to create a temp directory"
+  
+    if [ -n "${info_level}" ]; then
+      set_info_level "${info_level}"
     fi
-  fi
 
+    if [ -z "${path}" ]; then
+      echo_fatal "Path must not be empty, use --path to indicate a buckup path."
+    fi
 
-  if strcontains "${option}" 'buckup' --ignorecase; then
-
-    local tmp_tar_path="${tmp_path}/buckup"
-
-    echo_verbose "Buckup iptables rule  ..."
-    # save iptables rule and compress it
-    local tmp_iptables_path="${tmp_path}/iptables"
-    echo_cmd "${IPTABLES_SAVE} --file ${tmp_iptables_path}"
-    if [[ $? != '0' ]]; then
-      echo_fatal "Failed to save iptables's rules"
+    # Create a temp directory
+    if [ -n "${tmp_path}" ]; then
+      if [ ! -d "${tmp_path}" ]; then
+        echo_err "${tmp_path} does not exist, try to craete one."
+        mkdir -p "${tmp_path}"
+        if [ ! -d "${tmp_path}" ]; then
+          echo_fatal "Failed to create the temp directory:${tmp_path}"
+        fi
+      fi
     else
-      ${TAR} --create --absolute-names --file="${tmp_tar_path}" -C "${tmp_path}" "iptables"
-    fi
-    local tmp_ip6tables_path="${tmp_path}/ip6tables"
-    echo_cmd "${IP6TABLES_SAVE} --file ${tmp_ip6tables_path}"
-    if [[ $? != '0' ]]; then
-      echo_fatal "Failed to save ip6tables's rules"
-    else
-      ${TAR} --append --absolute-names --file="${tmp_tar_path}" -C "${tmp_path}" "ip6tables"
-    fi
-
-
-    echo_verbose "Buckup net key in sysctl ..."
-    #这里不用 `sysctl -p`, 是希望只备份网络相关配置。 
-    local tmp_netfilter_config="${tmp_path}/net.conf"
-    if [ "${NET_KEY_ARRAY}" ]; then
-      for key in "${NET_KEY_ARRAY[@]}";
-      do
-        local val=$(yx_sysctl_config --read --key "${key}")
-        if [ -n "${val}" ]; then
-          yx_sysctl_config --write --file "${tmp_netfilter_config}" --key "${key}" --val "${val}"
-        fi
-      done
-    fi
-    if [ -f "${tmp_netfilter_config}" ]; then
-      ${TAR} --append --absolute-names --file="${tmp_tar_path}" -C "${tmp_path}" "net.conf"
-    fi
-
-
-    echo_verbose "Buckup netfilter key in sysctl.config ..."
-    #这里不用 `sysctl -p`, 是希望只备份网络相关配置。 
-    local tmp_sysctl_config="${tmp_path}/netfilter.conf"
-    if [ "${NETFILTER_KEY_ARRAY}" ]; then
-      for key in "${NETFILTER_KEY_ARRAY[@]}";
-      do
-        local val=$(yx_sysctl_config --read --key "${key}")
-        if [ -n "${val}" ]; then
-          yx_sysctl_config --write --file "${tmp_sysctl_config}" --key "${key}" --val "${val}"
-        fi
-      done
-    fi
-    if [ -f "${tmp_sysctl_config}" ]; then
-      ${TAR} --append --absolute-names --file="${tmp_tar_path}" -C "${tmp_path}" "netfilter.conf"
-    fi
-
-    echo_verbose "Buckup ${CMD} netfilter module config ..."
-    local tmp_modprobe_netfilter_conig="${tmp_path}/mod_netfilter.conf"
-    if [ "${NETFILTER_MOD_CONFIG_KEY_ARRAY}" ]; then
-      for key in "${NETFILTER_MOD_CONFIG_KEY_ARRAY[@]}";
-      do
-        local fix_key=$(echo ${key} | tr '#' ' ')
-        local val=$(yx_modprobe_config --read --key "${fix_key}")
-        echo "${fix_key}=${val}"
-        if [ -n "${val}" ]; then
-          yx_modprobe_config --write --file "${tmp_modprobe_netfilter_conig}" --key "${key}" --val "${val}"
-        fi
-      done
-    fi
-    if [ -f "${tmp_modprobe_netfilter_conig}" ]; then
-      ${TAR} --append --absolute-names --file="${tmp_tar_path}" -C "${tmp_path}" "mod_netfilter.conf"
-    fi
-
-
-    echo_verbose "Create the buckup file to destionation ..."
-    local destination_dir=$(dirname "${path}")
-    if [ ! -d "${destination_dir}" ]; then
-      echo_err "DIR ${destination_dir} not exist, try create one"
-      mkdir -p ${destination_dir} > /dev/null
-      if [ ! -d  "${destination_dir}" ]; then
-        echo_fatal "Failed to mkdir ${destination_dir}"
+      tmp_path=$(mktemp --directory)
+      if [ -z "${tmp_path}" ]; then
+        echo_fatal "Failed to create a temp directory"
       fi
     fi
 
-    local force_flag=''
-    if ${force}; then
-      force_flag='--force'
-    fi
-    echo_cmd "cp ${force_flag} ${tmp_tar_path} ${path}"
 
-    echo_verbose "Verify package ..."
-    if ! iptables_storage verify --path "${path}"; then
-      echo_cmd "${RM} -f ${path}"
-      echo_fatal "Verify failed. there is something wrong with new buckup file. delete it"
-    fi
+    if strcontains "${option}" 'buckup' --ignorecase; then
 
-  
-  elif strcontains "${option}" 'restore' --ignorecase; then
+      local tmp_tar_path="${tmp_path}/buckup"
+
+      echo_verbose "Buckup iptables rule  ..."
+      # save iptables rule and compress it
+      local tmp_iptables_path="${tmp_path}/iptables"
+      echo_cmd "${IPTABLES_SAVE} --file ${tmp_iptables_path}"
+      if [[ $? != '0' ]]; then
+        echo_fatal "Failed to save iptables's rules"
+      else
+        ${TAR} --create --absolute-names --file="${tmp_tar_path}" -C "${tmp_path}" "iptables"
+      fi
+      local tmp_ip6tables_path="${tmp_path}/ip6tables"
+      echo_cmd "${IP6TABLES_SAVE} --file ${tmp_ip6tables_path}"
+      if [[ $? != '0' ]]; then
+        echo_fatal "Failed to save ip6tables's rules"
+      else
+        ${TAR} --append --absolute-names --file="${tmp_tar_path}" -C "${tmp_path}" "ip6tables"
+      fi
+
+
+      echo_verbose "Buckup net key in sysctl ..."
+      #这里不用 `sysctl -p`, 是希望只备份网络相关配置。 
+      local tmp_netfilter_config="${tmp_path}/net.conf"
+      if [ "${NET_KEY_ARRAY}" ]; then
+        for key in "${NET_KEY_ARRAY[@]}";
+        do
+          local val=$(yx_sysctl_config --read --key "${key}")
+          if [ -n "${val}" ]; then
+            yx_sysctl_config --write --file "${tmp_netfilter_config}" --key "${key}" --val "${val}"
+          fi
+        done
+      fi
+      if [ -f "${tmp_netfilter_config}" ]; then
+        ${TAR} --append --absolute-names --file="${tmp_tar_path}" -C "${tmp_path}" "net.conf"
+      fi
+
+
+      echo_verbose "Buckup netfilter key in sysctl.config ..."
+      #这里不用 `sysctl -p`, 是希望只备份网络相关配置。 
+      local tmp_sysctl_config="${tmp_path}/netfilter.conf"
+      if [ "${NETFILTER_KEY_ARRAY}" ]; then
+        for key in "${NETFILTER_KEY_ARRAY[@]}";
+        do
+          local val=$(yx_sysctl_config --read --key "${key}")
+          if [ -n "${val}" ]; then
+            yx_sysctl_config --write --file "${tmp_sysctl_config}" --key "${key}" --val "${val}"
+          fi
+        done
+      fi
+      if [ -f "${tmp_sysctl_config}" ]; then
+        ${TAR} --append --absolute-names --file="${tmp_tar_path}" -C "${tmp_path}" "netfilter.conf"
+      fi
+
+      echo_verbose "Buckup ${CMD} netfilter module config ..."
+      local tmp_modprobe_netfilter_conig="${tmp_path}/mod_netfilter.conf"
+      if [ "${NETFILTER_MOD_CONFIG_KEY_ARRAY}" ]; then
+        for key in "${NETFILTER_MOD_CONFIG_KEY_ARRAY[@]}";
+        do
+          local fix_key=$(echo ${key} | tr '#' ' ')
+          local val=$(yx_modprobe_config --read --key "${fix_key}")
+          echo "${fix_key}=${val}"
+          if [ -n "${val}" ]; then
+            yx_modprobe_config --write --file "${tmp_modprobe_netfilter_conig}" --key "${key}" --val "${val}"
+          fi
+        done
+      fi
+      if [ -f "${tmp_modprobe_netfilter_conig}" ]; then
+        ${TAR} --append --absolute-names --file="${tmp_tar_path}" -C "${tmp_path}" "mod_netfilter.conf"
+      fi
+
+
+      echo_verbose "Create the buckup file to destionation ..."
+      local destination_dir=$(dirname "${path}")
+      if [ ! -d "${destination_dir}" ]; then
+        echo_err "DIR ${destination_dir} not exist, try create one"
+        mkdir -p ${destination_dir} > /dev/null
+        if [ ! -d  "${destination_dir}" ]; then
+          echo_fatal "Failed to mkdir ${destination_dir}"
+        fi
+      fi
+
+      local force_flag=''
+      if ${force}; then
+        force_flag='--force'
+      fi
+      echo_cmd "cp ${force_flag} ${tmp_tar_path} ${path}"
 
       echo_verbose "Verify package ..."
-      # 验证备份文件
       if ! iptables_storage verify --path "${path}"; then
         echo_cmd "${RM} -f ${path}"
         echo_fatal "Verify failed. there is something wrong with new buckup file. delete it"
       fi
 
-      # 解压到临时目录
-      echo_verbose "Extra to path :${tmp_path} ..."
-      if ! ${TAR} --extract --file="${path}" --directory="${tmp_path}"; then
-        echo_fatal "Failed to extract buckup file"
+    
+    elif strcontains "${option}" 'restore' --ignorecase; then
+
+        echo_verbose "Verify package ..."
+        # 验证备份文件
+        if ! iptables_storage verify --path "${path}"; then
+          echo_cmd "${RM} -f ${path}"
+          echo_fatal "Verify failed. there is something wrong with new buckup file. delete it"
+        fi
+
+        # 解压到临时目录
+        echo_verbose "Extra to path :${tmp_path} ..."
+        if ! ${TAR} --extract --file="${path}" --directory="${tmp_path}"; then
+          echo_fatal "Failed to extract buckup file"
+        fi
+
+        echo_verbose "Restore iptables'rule ..."
+        # 恢复iptables dump 配置
+        local save_dump_params=''
+        local iptables_path="${tmp_path}/iptables"
+        if [ -f "${iptables_path}" ]; then
+          if ${IPTABLES_RESTORE} --test "${iptables_path}"; then
+            echo_cmd "${IPTABLES_RESTORE} ${iptables_path}"
+            if [[ $? == 0 ]]; then
+              save_dump_params="${save_dump_params} --iptables-dump ${iptables_path}"
+            else
+              echo_fatal "Failed to restore iptables rule from data"
+            fi
+          fi
+        fi
+        # 恢复ip6tables dump 配置
+        local ip6tables_path="${tmp_path}/ip6tables"
+        if [ -f "${ip6tables_path}" ]; then
+          if ${IP6TABLES_RESTORE} --test "${ip6tables_path}"; then
+            echo_cmd "${IP6TABLES_RESTORE} ${ip6tables_path}"
+            if [[ $? == 0 ]]; then
+              save_dump_params="${save_dump_params} --ip6tables-dump ${ip6tables_path}"
+            else
+              echo_fatal "Failed to restore ip6tables rule from data"
+            fi
+          fi
+        fi
+
+        # Save iptables' dump file and create systemd service restore the dump at launch.
+        echo_verbose "Create systemd service to restore the dump at launch ..."
+        save_iptabls_dump ${save_dump_params}
+
+
+        # 恢复net.xxx相关配置
+        if [ "${NET_KEY_ARRAY}" ]; then
+
+          echo_verbose "Clear all net item in sysctl.conf ..."
+          # 删除所有sysctl.conf中net.xxx配置
+          for key in "${NET_KEY_ARRAY[@]}"; do
+            if yx_sysctl_config --exist --key "${key}"; then
+              yx_sysctl_config --remove --key "${key}"
+            fi
+          done
+
+          echo_verbose "Restore net item from storage ..."
+          # 恢复buckup文件中net.xxx配置
+          for key in $(yx_sysctl_config --all-keys --file "${tmp_path}/net.conf"); do
+            local val=$(yx_sysctl_config --read --file "${tmp_path}/net.conf" --key "${key}")
+            if [ -n "${val}" ]; then
+              yx_sysctl_config --write --key "${key}" --val "${val}"
+            fi
+          done
+        fi
+
+
+        # 恢复 netfilter 相关配置
+        if [ "${NETFILTER_KEY_ARRAY}" ]; then
+
+          echo_verbose "Clear all netfilter items in sysctl.conf ..."
+          # 删除所有sysctl.conf中netfilter.xxx配置
+          for key in "${NETFILTER_KEY_ARRAY[@]}"; do
+            if yx_sysctl_config --exist --key "${key}"; then
+              yx_sysctl_config --remove --key "${key}"
+            fi
+          done
+
+          echo_verbose "Restore netfilter item from storage ..."
+          # 恢复buckup文件中netfilter.xxx配置
+          for key in $(yx_sysctl_config --all-keys --file "${tmp_path}/netfilter.conf"); do
+            local val=$(yx_sysctl_config --read --file "${tmp_path}/netfilter.conf" --key "${key}")
+            if [ -n "${val}" ]; then
+              yx_sysctl_config --write --key "${key}" --val "${val}"
+            fi
+          done
+        fi
+        
+        # 恢复modprobe中的配置
+        # 这里**暂时**只针对yxfirewall的配置文件
+        if [ "${NETFILTER_MOD_CONFIG_KEY_ARRAY}" ]; then
+
+          echo_verbose "Clear all items in modprobe/${CMD}.conf ..."
+          # 删除所有sysctl.conf中netfilter.xxx配置
+          for key in "${NETFILTER_MOD_CONFIG_KEY_ARRAY[@]}"; do
+            local fix_key=$(echo ${key} | tr '#' ' ')
+            if yx_modprobe_config --exist --key "${fix_key}"; then
+              yx_modprobe_config --remove --key "${fix_key}"
+            fi
+          done
+
+          echo_verbose "Restore modprobe item from storage ..."
+          # 恢复buckup文件中modprobe.yxfirewall配置
+          for key in $(yx_modprobe_config --all-keys --file "${tmp_path}/mod_netfilter.conf"); do
+            local fix_key=$(echo ${key} | tr '#' ' ')
+            local val=$(yx_modprobe_config --read --file "${tmp_path}/mod_netfilter.conf" --key "${key}")
+            if [ -n "${val}" ]; then
+              yx_modprobe_config --write --key "${fix_key}" --val "${val}"
+            fi
+          done
+        fi
+
+    elif strcontains "${option}" 'verify' --ignorecase; then
+
+      local check_failed=false
+
+      if [ ! -f "${path}" ]; then
+        echo_fatal "File not exist :${path}"
       fi
 
-      echo_verbose "Restore iptables'rule ..."
-      # 恢复iptables dump 配置
-      local save_dump_params=''
+      if ! ${check_failed}; then
+        ${TAR} --extract --file="${path}" --directory="${tmp_path}"
+        if [[ $? != 0 ]]; then
+          check_failed=true
+          echo_verbose "Package: extract failed"
+        else
+          echo_verbose "Package: OK"
+        fi
+      fi
+
       local iptables_path="${tmp_path}/iptables"
-      if [ -f "${iptables_path}" ]; then
-        if ${IPTABLES_RESTORE} --test "${iptables_path}"; then
-          echo_cmd "${IPTABLES_RESTORE} ${iptables_path}"
-          if [[ $? == 0 ]]; then
-            save_dump_params="${save_dump_params} --iptables-dump ${iptables_path}"
+      if ! ${check_failed}; then
+        if ! [ -f "${iptables_path}" ]; then
+          check_failed=true
+          echo_verbose "Package: iptables'rule not exist"
+        else
+          if ! "${IPTABLES_RESTORE}" --test "${iptables_path}"; then
+            check_failed=true
+            echo_verbose "Package: iptables'rule parse failed"
           else
-            echo_fatal "Failed to restore iptables rule from data"
+            echo_verbose "iptables's rule: OK"
           fi
         fi
       fi
-      # 恢复ip6tables dump 配置
+
       local ip6tables_path="${tmp_path}/ip6tables"
-      if [ -f "${ip6tables_path}" ]; then
-        if ${IP6TABLES_RESTORE} --test "${ip6tables_path}"; then
-          echo_cmd "${IP6TABLES_RESTORE} ${ip6tables_path}"
-          if [[ $? == 0 ]]; then
-            save_dump_params="${save_dump_params} --ip6tables-dump ${ip6tables_path}"
+      if ! ${check_failed}; then
+        if [ ! -f "${ip6tables_path}" ]; then
+          check_failed=true
+          echo_verbose "Package: ip6tables'rule not exist"
+        else
+          if ! "${IP6TABLES_RESTORE}" --test "${ip6tables_path}"; then
+            check_failed=true
+            echo_verbose "Package: ip6tables'rule parse failed"
           else
-            echo_fatal "Failed to restore ip6tables rule from data"
+            echo_verbose "ip6tables's rule: OK"
           fi
         fi
       fi
 
-      # Save iptables' dump file and create systemd service restore the dump at launch.
-      echo_verbose "Create systemd service to restore the dump at launch ..."
-      save_iptabls_dump ${save_dump_params}
-
-
-      # 恢复net.xxx相关配置
-      if [ "${NET_KEY_ARRAY}" ]; then
-
-        echo_verbose "Clear all net item in sysctl.conf ..."
-        # 删除所有sysctl.conf中net.xxx配置
-        for key in "${NET_KEY_ARRAY[@]}"; do
-          if yx_sysctl_config --exist --key "${key}"; then
-            yx_sysctl_config --remove --key "${key}"
-          fi
-        done
-
-        echo_verbose "Restore net item from storage ..."
-        # 恢复buckup文件中net.xxx配置
-        for key in $(yx_sysctl_config --all-keys --file "${tmp_path}/net.conf"); do
-          local val=$(yx_sysctl_config --read --file "${tmp_path}/net.conf" --key "${key}")
-          if [ -n "${val}" ]; then
-            yx_sysctl_config --write --key "${key}" --val "${val}"
-          fi
-        done
-      fi
-
-
-      # 恢复 netfilter 相关配置
-      if [ "${NETFILTER_KEY_ARRAY}" ]; then
-
-        echo_verbose "Clear all netfilter items in sysctl.conf ..."
-        # 删除所有sysctl.conf中netfilter.xxx配置
-        for key in "${NETFILTER_KEY_ARRAY[@]}"; do
-          if yx_sysctl_config --exist --key "${key}"; then
-            yx_sysctl_config --remove --key "${key}"
-          fi
-        done
-
-        echo_verbose "Restore netfilter item from storage ..."
-        # 恢复buckup文件中netfilter.xxx配置
-        for key in $(yx_sysctl_config --all-keys --file "${tmp_path}/netfilter.conf"); do
-          local val=$(yx_sysctl_config --read --file "${tmp_path}/netfilter.conf" --key "${key}")
-          if [ -n "${val}" ]; then
-            yx_sysctl_config --write --key "${key}" --val "${val}"
-          fi
-        done
-      fi
-      
-      # 恢复modprobe中的配置
-      # 这里**暂时**只针对yxfirewall的配置文件
-      if [ "${NETFILTER_MOD_CONFIG_KEY_ARRAY}" ]; then
-
-        echo_verbose "Clear all items in modprobe/${CMD}.conf ..."
-        # 删除所有sysctl.conf中netfilter.xxx配置
-        for key in "${NETFILTER_MOD_CONFIG_KEY_ARRAY[@]}"; do
-          local fix_key=$(echo ${key} | tr '#' ' ')
-          if yx_modprobe_config --exist --key "${fix_key}"; then
-            yx_modprobe_config --remove --key "${fix_key}"
-          fi
-        done
-
-        echo_verbose "Restore modprobe item from storage ..."
-        # 恢复buckup文件中modprobe.yxfirewall配置
-        for key in $(yx_modprobe_config --all-keys --file "${tmp_path}/mod_netfilter.conf"); do
-          local fix_key=$(echo ${key} | tr '#' ' ')
-          local val=$(yx_modprobe_config --read --file "${tmp_path}/mod_netfilter.conf" --key "${key}")
-          if [ -n "${val}" ]; then
-            yx_modprobe_config --write --key "${fix_key}" --val "${val}"
-          fi
-        done
-      fi
-
-  elif strcontains "${option}" 'verify' --ignorecase; then
-
-    local check_failed=false
-
-    if [ ! -f "${path}" ]; then
-      echo_fatal "File not exist :${path}"
-    fi
-
-    if ! ${check_failed}; then
-      ${TAR} --extract --file="${path}" --directory="${tmp_path}"
-      if [[ $? != 0 ]]; then
-        check_failed=true
-        echo_verbose "Package: extract failed"
-      else
-        echo_verbose "Package: OK"
-      fi
-    fi
-
-    local iptables_path="${tmp_path}/iptables"
-    if ! ${check_failed}; then
-      if ! [ -f "${iptables_path}" ]; then
-        check_failed=true
-        echo_verbose "Package: iptables'rule not exist"
-      else
-        if ! "${IPTABLES_RESTORE}" --test "${iptables_path}"; then
+      local sysctl_path="${tmp_path}/sysctl.conf"
+      if [ -f "${sysctl_path}" ]; then
+        if ! [ -r "${sysctl_path}" ]; then
           check_failed=true
-          echo_verbose "Package: iptables'rule parse failed"
+          echo_verbose "sysctl.conf: unreadable"
         else
-          echo_verbose "iptables's rule: OK"
+          echo_verbose "sysctl.conf: OK"
         fi
-      fi
-    fi
-
-    local ip6tables_path="${tmp_path}/ip6tables"
-    if ! ${check_failed}; then
-      if [ ! -f "${ip6tables_path}" ]; then
-        check_failed=true
-        echo_verbose "Package: ip6tables'rule not exist"
       else
-        if ! "${IP6TABLES_RESTORE}" --test "${ip6tables_path}"; then
+        echo_verbose "sysctl.conf: not exist"
+      fi
+
+      local netfilter_path="${tmp_path}/netfilter.conf"
+      if [ -f "${netfilter_path}" ]; then
+        if ! [ -r "${netfilter_path}" ]; then
+          echo_verbose "netfilter.conf: unreadable"
           check_failed=true
-          echo_verbose "Package: ip6tables'rule parse failed"
         else
-          echo_verbose "ip6tables's rule: OK"
+          echo_verbose "netfilter.conf: OK"
         fi
-      fi
-    fi
-
-    local sysctl_path="${tmp_path}/sysctl.conf"
-    if [ -f "${sysctl_path}" ]; then
-      if ! [ -r "${sysctl_path}" ]; then
-        check_failed=true
-        echo_verbose "sysctl.conf: unreadable"
       else
-        echo_verbose "sysctl.conf: OK"
+        echo_verbose "netfilter.conf: not exist"
       fi
-    else
-      echo_verbose "sysctl.conf: not exist"
-    fi
 
-    local netfilter_path="${tmp_path}/netfilter.conf"
-    if [ -f "${netfilter_path}" ]; then
-      if ! [ -r "${netfilter_path}" ]; then
-        echo_verbose "netfilter.conf: unreadable"
-        check_failed=true
+      local mod_netfilter_path="${tmp_path}/mod_netfilter.conf"
+      if [ -f "${mod_netfilter_path}" ]; then
+        if ! [ -r "${mod_netfilter_path}" ]; then
+          check_failed=true
+          echo_verbose "mod_netfilter.conf: unreadable"
+        else
+          echo_verbose "mod_netfilter.conf: OK"
+        fi
       else
-        echo_verbose "netfilter.conf: OK"
+        echo_verbose "mod_netfilter.conf: not exist"
       fi
-    else
-      echo_verbose "netfilter.conf: not exist"
-    fi
 
-    local mod_netfilter_path="${tmp_path}/mod_netfilter.conf"
-    if [ -f "${mod_netfilter_path}" ]; then
-      if ! [ -r "${mod_netfilter_path}" ]; then
-        check_failed=true
-        echo_verbose "mod_netfilter.conf: unreadable"
+      if ${check_failed}; then
+        return 1
       else
-        echo_verbose "mod_netfilter.conf: OK"
+        return 0
       fi
-    else
-      echo_verbose "mod_netfilter.conf: not exist"
-    fi
 
-    if ${check_failed}; then
-      return 1
-    else
-      return 0
     fi
-
   fi
+
+
 
 
 
