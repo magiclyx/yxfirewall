@@ -5156,6 +5156,7 @@ function iptables_list()
   local reference=false
   local chain_io=false
 
+  local info_level=
   local show_help=false
   local additional=
 
@@ -5330,6 +5331,7 @@ function iptables_handler()
   # local handler=
   local retraction=
 
+  local info_level=
   local show_help=false
 
   local option=$1
