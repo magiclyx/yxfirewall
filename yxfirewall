@@ -2123,8 +2123,10 @@ cat <<EOF
   outgoing: For IPV4 outgoing filtering
   server:   For 'New' connection on incoming and 'Established/Relate' connection on outgoing.
   client:   For 'New' connection on outgoing and 'Established/Relate' connection on incoming.
+  buckup:   Buckup current configuration, include iptables' rule, network and netfilter optimization parameters.
+  restore:  Restore all network configurate from a buckup file.
   loopback: Fast command for loopback interface.
-  handler:  Manager handler command.
+  handler:  Handler manager command.
 
   Other options
   Use '${CMD} --help' show this help information
