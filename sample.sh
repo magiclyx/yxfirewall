@@ -11,7 +11,8 @@ LOOP_BACK=false
 # 仅支持https
 HTTPS_ONLY=true
 
-# 日志级别(SILENT, FATAL, ERROR, VERBOSE, 或可直接使用0-99数字), 不更改可以留空
+# 日志级别(SILENT, FATAL, ERROR, VERBOSE, 或可直接使用0-99数字), 默认ERROR, 不更改可以留空
+# 慎用权局设置VERBOSE, 会产生非常多无用输出
 LOG_Level=VERBOSE
 
 # 备份路径
@@ -98,6 +99,7 @@ if [ -n "${LOG_Level}" ]; then
     echo_noti "Change output level to '${LOG_Level}'..."
     echo_noti "========================================================================================================================"
     # 先备份之前的配置
+    # 注意: 平时不要设置全局的 info.level 为 VERBOSE, 而是对单条命令使用 --info-level 参数
     info_level_buckup=$(sudo ./yxfirewall config --read --key info.level)
     # 更改全局日志配置, 这里使用了`--info-level`参数，确保当前命令也有正确的日志输出
     sudo ./yxfirewall config --write --key info.level --val "${LOG_Level}" --info-level "${LOG_Level}"

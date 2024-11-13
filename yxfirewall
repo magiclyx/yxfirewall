@@ -138,10 +138,12 @@ NET_KEY_ARRAY=(
   #以一种比重发超时更精确的方法（请参阅 RFC 1323）来启用对 RTT 的计算；为了实现更好的性能应该启用这个选项。
   net.ipv4.tcp_timestamps
 
-  #表示开启重用。允许将TIME-WAIT sockets重新用于新的TCP连接，默认为0，表示关闭，我推荐开启；
+  #表示开启重用。允许将TIME-WAIT sockets重新用于新的TCP连接，默认为0，表示关闭；
   net.ipv4.tcp_tw_reuse
 
   #表示开启TCP连接中TIME-WAIT sockets的快速回收，默认为0，表示关闭。
+  #内核丢弃收到的时间戳不严格递增的包, 会导致使用Nat的客户端及新4.10版本内核的系统，错误丢包。
+  #此参数在 4.12 内核中此参数已经永久废弃
   net.ipv4.tcp_tw_recycle
 
   #表示如果套接字由本端要求关闭，这个参数决定了它保持在FIN-WAIT-2状态的时间。
@@ -3184,6 +3186,31 @@ function iptables_save()
     ###############################
     # 响应时间
     ###############################
+
+    # 这里强制开启一下 tcp_timestamps
+    if ! yx_sysctl_config --write --key "net.ipv4.tcp_timestamps" --val '1'; then
+      echo_fatal "failed to change 'net.ipv4.tcp_timestamps' to 1"
+
+      # 在tw_buckets 满的时候, 根据 TCP 时间戳决定是否复用 TIME_WAIT socket. 依赖 'net.ipv4.tcp_timestamps'
+      if ! yx_sysctl_config --write --key "net.ipv4.tcp_tw_reuse" --val '1'; then
+        echo_fatal "failed to change 'net.ipv4.tcp_tw_reuse' to 1"
+      fi
+
+      # 内核丢弃收到的时间戳不严格递增的包, 会导致使用Nat的客户端及新4.10版本内核的系统，错误丢包。
+      # 此参数在 4.12 内核中此参数已经永久废弃
+      # 依赖 'net.ipv4.tcp_timestamps'
+      # 配置中如果配置了这个key, 会将其设置为0
+      if yx_sysctl_config --exist --key "net.ipv4.tcp_tw_recycle"; then
+        if ! yx_sysctl_config --write --key "net.ipv4.tcp_tw_recycle" --val '0'; then
+          echo_fatal "failed to change 'net.ipv4.tcp_tw_recycle' to 0"
+        fi
+      fi
+
+    fi
+
+
+
+
     #主动方的最后1个状态。默认120秒
     if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_fin_wait" --val '10'; then
       echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_fin_wait' to 10"
@@ -3226,6 +3253,15 @@ function iptables_save()
     # 直到超时才 CLOSE。`net.ipv4.tcp_retries2` 的默认值是 15，最多要等 924.6 秒……不过一般都会调小这个值。
     if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_tcp_timeout_last_ack" --val '10'; then
       echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_last_ack' to 10"
+    fi
+
+
+    ###############################
+    # 其他
+    ###############################
+    # 建立连接时，随机端口范围
+    if ! yx_sysctl_config --write --key "net.ipv4.ip_local_port_range" --val '15000 60999'; then
+      echo_fatal "failed to change 'net.netfilter.nf_conntrack_tcp_timeout_last_ack' to 15000 60999"
     fi
     
 

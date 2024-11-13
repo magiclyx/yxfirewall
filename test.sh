@@ -1,6 +1,7 @@
 #!/bin/bash
 
-
+# 比Sample.sh 多了些无用的测试调用。 
+# 不保证执行结果
 
 ###########################################################
 # 配置
@@ -15,7 +16,8 @@ HTTPS_ONLY=false
 # 首次运行
 FIRST_LAUNCH=true
 
-# 日志级别(SILENT, FATAL, ERROR, VERBOSE, 或可直接使用0-99数字), 不更改可以留空
+# 日志级别(SILENT, FATAL, ERROR, VERBOSE, 或可直接使用0-99数字), 默认ERROR, 不更改可以留空
+# 慎用权局设置VERBOSE, 会产生非常多无用输出
 LOG_Level=VERBOSE
 
 # 备份路径
