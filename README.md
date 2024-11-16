@@ -1,4 +1,4 @@
-# YXPyCore
+# YXFirewall
 我的 netfilter 脚本
 1. 包装 iptables 函数，简化iptables命令
 2. 自动设置sysctl常用配置。
