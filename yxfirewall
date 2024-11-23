@@ -7868,7 +7868,7 @@ function ftp_handler()
 
 # Use critical environment
 # PATH=/sbin:/usr/sbin:/bin:/usr/bin
-ATH=/sbin:/bin
+PATH=/sbin:/bin
 
 
 # Force root
