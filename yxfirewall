@@ -2878,7 +2878,7 @@ function save_iptabls_dump()
     fi
 
     create_script_init ${script_params} > "${INITD_SCRIPT_PATH}"
-    echo_cmd "${CHMOD} 0766 ${INITD_SCRIPT_PATH}"
+    echo_cmd "${CHMOD} 0744 ${INITD_SCRIPT_PATH}"
 
 
 
@@ -2894,6 +2894,7 @@ function save_iptabls_dump()
     fi
 
     create_ubuntu_service_config --path "${INITD_SCRIPT_PATH}" > "${SYSTEMD_INIT_PATH}"
+    echo_cmd "${CHMOD} 0744 ${SYSTEMD_INIT_PATH}"
 
   fi
 
