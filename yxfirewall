@@ -7487,9 +7487,9 @@ function handle_web_server()
     ##################################################
 
     iptables_wrapper ACCEPT --proto tcp ${chain_in_params} --limit limit-upto:http_dos:1/s:100:srcip:::300000 ${in_params} --state NEW,ESTABLISHED ${additional}
-    iptables_wrapper DROP --proto tcp ${chain_in_params} ${out_params} ${log_params} ${additional}
+    iptables_wrapper DROP --proto tcp ${chain_in_params} ${in_params} ${log_params} ${additional}
 
-    iptables_wrapper ACCEPT --proto tcp ${chain_out_params} ${in_params} --state ESTABLISHED ${additional}
+    iptables_wrapper ACCEPT --proto tcp ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
 
   elif strcontains "${option}" 'DROP DISABLE BLOCK' --ignorecase; then
      iptables_wrapper DROP --proto tcp ${chain_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
