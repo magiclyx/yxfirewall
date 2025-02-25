@@ -2125,6 +2125,7 @@ cat <<EOF
   outgoing: For IPV4 outgoing filtering
   server:   For 'New' connection on incoming and 'Established/Relate' connection on outgoing.
   client:   For 'New' connection on outgoing and 'Established/Relate' connection on incoming.
+  node:     For 'New' connection on incomming and outgoing.
   buckup:   Buckup current configuration, include iptables' rule, network and netfilter optimization parameters.
   restore:  Restore all network configurate from a buckup file.
   loopback: Fast command for loopback interface.
@@ -2414,6 +2415,9 @@ function usage_wall()
 
   usage: ${CMD} Client <accept|drop|block|return|reject> [options]
   For 'New' connection on outgoing and 'Established/Relate' connection on incoming.
+
+  usage: ${CMD} Node <accept|drop|block|return|reject> [options]
+  For 'New' connection on incoming and outgoing.
 
 
   The following options are allowed:
@@ -4108,6 +4112,8 @@ function iptables_wall()
       type="server"
     elif strcontains "${type}" 'client clt' --ignorecase; then
       type="client"
+    elif strcontains "${type}" 'node' --ignorecase; then
+      type="node"
     elif strcontains "${type}" 'incoming' --ignorecase; then
       type="incoming"
     elif strcontains "${type}" 'outgoing' --ignorecase; then
@@ -4624,6 +4630,23 @@ function iptables_wall()
               iptables_wrapper "${chain_in}" --chain INPUT ${in_params} ${protocol_params} ${additional}
             fi
 
+
+          elif [[ ${type} == 'node' ]]; then
+            echo_verbose 'Add node chain...'
+            iptables_wrapper ${option} --chain ${chain_in} ${in_params} --port-to ${port} ${protocol_params} ${limit_params} --state NEW ${log_params} ${additional}
+            iptables_wrapper ${option} --chain ${chain_in} ${in_params} --port-to ${port} ${protocol_params} ${limit_params} --state ESTABLISHED ${additional}
+            iptables_wrapper ${option} --chain ${chain_in} ${in_params} --port-from ${port} ${protocol_params} ${limit_params} --state ESTABLISHED ${additional}
+
+            iptables_wrapper ${option} --chain ${chain_out} ${out_params} --port-to ${port} ${protocol_params} ${limit_params} --state NEW ${log_params} ${additional}
+            iptables_wrapper ${option} --chain ${chain_out} ${out_params} --port-to ${port} ${protocol_params} ${limit_params} --state ESTABLISHED ${additional}
+            iptables_wrapper ${option} --chain ${chain_out} ${out_params} --port-from ${port} ${protocol_params} ${limit_params} --state ESTABLISHED ${additional}
+
+            if [ -n "${chain}" ]; then
+              iptables_wrapper "${chain_out}" --chain OUTPUT ${out_params} --port-to ${port} ${protocol_params} ${additional}
+              iptables_wrapper "${chain_out}" --chain OUTPUT ${out_params} --port-from ${port} ${protocol_params} ${additional}
+              iptables_wrapper "${chain_in}" --chain INPUT ${in_params} --port-to ${port} ${protocol_params} ${additional}
+              iptables_wrapper "${chain_in}" --chain INPUT ${in_params} --port-from ${port} ${protocol_params} ${additional}
+            fi
 
           elif [[ ${type} == 'incoming' ]]; then
 
@@ -7932,6 +7955,8 @@ elif strcontains "${sub_cmd}" 'server' --ignorecase; then
   iptables_wall server "$@"
 elif strcontains "${sub_cmd}" 'client' --ignorecase; then
   iptables_wall client "$@"
+elif strcontains "${sub_cmd}" 'node' --ignorecase; then
+  iptables_wall node "$@"
 elif strcontains "${sub_cmd}" 'list' --ignorecase; then
   iptables_list "$@"
 elif strcontains "${sub_cmd}" 'loopback' --ignorecase; then
