@@ -5138,7 +5138,7 @@ function iptables_loopback()
   if strcontains "${option}" 'Accept Enable Allow' --ignorecase; then
     option="ACCEPT"
     shift
-  elif strcontains "${option}" 'Drop Disable Block' --ignorecase; then
+  elif strcontains "${option}" 'Drop Disable Block Deny' --ignorecase; then
     option="DROP"
     shift
   else
@@ -6082,7 +6082,7 @@ function handle_package_server()
   fi
 
 
-  if strcontains "${option}" 'Drop Disable Block' --ignorecase; then
+  if strcontains "${option}" 'Drop Disable Block Deny' --ignorecase; then
     echo_verbose 'Add bad-package rule...'
     # low-port on tdcp
     iptables_wrapper ${option} --proto tcp --port-from 0:19 ${chain_in_params}
@@ -6284,7 +6284,7 @@ function handle_synflood_server()
     log_params="${log_params} --log ${logstr}"
   fi
 
-  if strcontains "${option}" 'Drop Disable Block' --ignorecase; then
+  if strcontains "${option}" 'Drop Disable Block Deny' --ignorecase; then
     echo_verbose 'Add syn-flood rule...'
     iptables_wrapper RETURN --proto tcp --syn ${chain_in_params} ${in_params} --limit limit-upto:syn_flood:200/s:3:srcip:::300000
     iptables_wrapper LOG ${log_params} ${chain_in_params} ${in_params}
@@ -7359,7 +7359,7 @@ function handle_ssh_server()
     iptables_wrapper ACCEPT --proto tcp ${chain_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
     iptables_wrapper ACCEPT ${chain_out_params} --proto tcp ${out_params} --state ESTABLISHED ${additional}
 
-  elif strcontains "${option}" 'DROP DISABLE BLOCK' --ignorecase; then
+  elif strcontains "${option}" 'DROP DISABLE BLOCK DENY' --ignorecase; then
 
     ###########################################################
     # Same as ${CMD} service DROP --proto tcp --port 22
@@ -7577,7 +7577,7 @@ function handle_web_protocol()
 
       iptables_wrapper ACCEPT --proto tcp ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
 
-    elif strcontains "${option}" 'DROP DISABLE BLOCK' --ignorecase; then
+    elif strcontains "${option}" 'DROP DISABLE BLOCK DENY' --ignorecase; then
       iptables_wrapper DROP --proto tcp ${chain_in_params} ${in_params} --state NEW,ESTABLISHED ${log_params} ${additional}
       iptables_wrapper DROP --proto tcp ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
         
@@ -7824,7 +7824,7 @@ function handle_ftp_server_and_client()
         # Finally allow FTP passive inbound traffic outgoing
         iptables_wrapper ACCEPT --proto tcp ${out_port_params} ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
 
-      elif strcontains "${option}" 'DROP DISABLE BLOCK' --ignorecase; then
+      elif strcontains "${option}" 'DROP DISABLE BLOCK DENY' --ignorecase; then
 
         # DROP FTP connections on port 21 incoming
         iptables_wrapper DROP --proto tcp --port-to 21 ${chain_in_params} ${in_params} --state NEW ${additional}
@@ -7852,7 +7852,7 @@ function handle_ftp_server_and_client()
       # Finally allow FTP passive inbound traffic outgoing
       iptables_wrapper ACCEPT --proto tcp ${out_port_params} ${chain_out_params} ${out_params} --state ESTABLISHED,RELATED ${additional}
 
-    elif strcontains "${option}" 'DROP DISABLE BLOCK' --ignorecase; then
+    elif strcontains "${option}" 'DROP DISABLE BLOCK DENY' --ignorecase; then
 
       # Allow FTP connections on port 21 outgoing
       iptables_wrapper DROP --proto tcp --port-from 21 ${chain_out_params} ${out_params} --state NEW ${additional}
