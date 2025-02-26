@@ -4623,7 +4623,7 @@ function iptables_wall()
 
             echo_verbose 'Add client chain...'
             iptables_wrapper ${option} --chain ${chain_out} ${out_params} ${protocol_params} ${limit_params} --state NEW,ESTABLISHED ${log_params} ${additional}
-            iptables_wrapper ${option} --chain ${chain_in} ${in_params} ${protocol_params} ${limit_params} --state ESTABLISHED ${log_params} ${additional}
+            iptables_wrapper ${option} --chain ${chain_in} ${in_params} ${protocol_params} ${limit_params} --state ESTABLISHED ${additional}
 
             if [ -n "${chain}" ]; then
               iptables_wrapper "${chain_out}" --chain OUTPUT ${out_params} ${protocol_params} ${additional}
