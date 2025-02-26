@@ -7319,7 +7319,7 @@ function handle_ssh_server()
 
 }
 
-function handle_web_server()
+function handle_web_protocol()
 {
 
   local chain=
@@ -7471,15 +7471,7 @@ function handle_web_server()
       out_params="${out_params} --not-ip-to ${not_ip}"
   fi
 
-  # port
-  local in_port_params=''
-  local out_port_params=''
-  if [ -n "${port}" ]; then
-    in_port_params="--port-to ${port}"
-    out_port_params="--port-from ${port}"
-    in_params="${in_params} ${in_port_params}"
-    out_params="${out_params} ${out_port_params}"
-  fi
+
 
   # chain
   # local chain_params=''
@@ -7499,38 +7491,79 @@ function handle_web_server()
   fi
 
 
-  echo_verbose "Add web rule on port ${port}..."
-  if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
+  if [[ "${type}" == 'server' ]]; then
+  
+    echo_verbose "Add web server rule on port ${port}..."
+    if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
 
-    ###########################################################
-    # 攻击防护：HTTP/HTTPS 
-    # 每秒只允许1次连接尝试。
-    # 100次超过上限将受到限制
-    # 生存期300秒
-    ##################################################
+      ###########################################################
+      # 攻击防护：HTTP/HTTPS 
+      # 每秒只允许1次连接尝试。
+      # 100次超过上限将受到限制
+      # 生存期300秒
+      ##################################################
 
-    iptables_wrapper ACCEPT --proto tcp ${chain_in_params} --limit limit-upto:http_dos:1/s:100:srcip:::300000 ${in_params} --state NEW,ESTABLISHED ${additional}
-    iptables_wrapper DROP --proto tcp ${chain_in_params} ${in_params} ${log_params} ${additional}
+      # port
+      local in_port_params=''
+      local out_port_params=''
+      if [ -n "${port}" ]; then
+        in_port_params="--port-to ${port}"
+        out_port_params="--port-from ${port}"
+        in_params="${in_params} ${in_port_params}"
+        out_params="${out_params} ${out_port_params}"
+      fi
 
-    iptables_wrapper ACCEPT --proto tcp ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
+      iptables_wrapper ACCEPT --proto tcp ${chain_in_params} --limit limit-upto:http_dos:1/s:100:srcip:::300000 ${in_params} --state NEW,ESTABLISHED ${additional}
+      iptables_wrapper DROP --proto tcp ${chain_in_params} ${in_params} ${log_params} ${additional}
 
-  elif strcontains "${option}" 'DROP DISABLE BLOCK' --ignorecase; then
-     iptables_wrapper DROP --proto tcp ${chain_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
-     iptables_wrapper DROP --proto tcp ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
-      
-      # iptables_wrapper DROP --proto tcp --chain INPUT ${in_params} --state NEW ${additional}
+      iptables_wrapper ACCEPT --proto tcp ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
+
+    elif strcontains "${option}" 'DROP DISABLE BLOCK' --ignorecase; then
+      iptables_wrapper DROP --proto tcp ${chain_in_params} ${in_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+      iptables_wrapper DROP --proto tcp ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
+        
+        # iptables_wrapper DROP --proto tcp --chain INPUT ${in_params} --state NEW ${additional}
+    fi
+
+    if [ -n "${chain}" ]; then
+      iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params}
+      iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params}
+    fi
+
+
+    return 0
+
+  elif [[ ${type} == 'node' ]]; then
+
+    echo_verbose "Add web node rule on port ${port}..."
+    if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
+      iptables_wrapper ACCEPT --proto tcp ${chain_in_params} --limit limit-upto:http_dos:1/s:100:srcip:::300000 ${in_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+      iptables_wrapper ACCEPT --proto tcp ${chain_in_params} ${in_params} --port-from ${port} --state ESTABLISHED ${additional}
+      iptables_wrapper DROP --proto tcp ${chain_in_params} ${in_params} ${log_params} ${additional}
+
+      iptables_wrapper ACCEPT --proto tcp ${chain_out_params} ${out_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+      iptables_wrapper ACCEPT --proto tcp ${chain_out_params} ${out_params} --port-from ${port} --state ESTABLISHED ${additional}
+      iptables_wrapper DROP --proto tcp ${chain_out_params} ${out_params} ${log_params} ${additional}
+    else
+      iptables_wrapper DROP --proto tcp ${chain_in_params} ${in_params} --port-to ${port} --state NEW,ESTABLISHED ${log_params} ${additional}
+      iptables_wrapper DROP --proto tcp ${chain_in_params} ${in_params} --port-from ${port} --state ESTABLISHED ${additional}
+
+      iptables_wrapper DROP --proto tcp ${chain_out_params} ${out_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+      iptables_wrapper DROP --proto tcp ${chain_out_params} ${out_params} --port-from ${port} --state ESTABLISHED ${additional}
+    fi
+
+    if [ -n "${chain}" ]; then
+      iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params} --port-to ${port} ${additional}
+      iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params} --port-from ${port} ${additional}
+      iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params} --port-to ${port} ${additional}
+      iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params} --port-from ${port} ${additional}
+    fi
+
+
+    return 0
   fi
 
-  if [ -n "${chain}" ]; then
-    iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params}
-    iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params}
-  fi
-
-
-
-
-  return 0
-
+  return 1
 }
 
 function handle_ftp_server_and_client()
@@ -7865,7 +7898,8 @@ function web_handler()
     [name]='web'
     [desc]='web handler: for http and https package'
     [protocol]="tcp"
-		[server]="handle_web_server"
+    [server]="handle_web_protocol"
+    [node]="handle_web_protocol"
 	)
 	
 	encode_handler http_map
