@@ -7149,7 +7149,7 @@ function handle_icmp_protocol()
 # SSH
 ####################################################################################################
 
-function handle_ssh_server()
+function handle_ssh_protocol()
 {
 
   local chain=
@@ -7314,15 +7314,6 @@ function handle_ssh_server()
       out_params="${out_params} --not-ip-to ${not_ip}"
   fi
 
-  # port
-  local in_port_params=''
-  local out_port_params=''
-  if [ -n "${port}" ]; then
-    in_port_params="--port-to ${port}"
-    out_port_params="--port-from ${port}"
-    in_params="${in_params} ${in_port_params}"
-    out_params="${out_params} ${out_port_params}"
-  fi
 
   # chain
   # local chain_params=''
@@ -7342,39 +7333,124 @@ function handle_ssh_server()
   fi
 
 
-  echo_verbose 'Add ssh rule...'
-  if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
+  if [[ "${type}" == 'server' ]]; then
 
-    ###########################################################
-    # 攻击防护：SSH 暴力破解
-    # SSH为使用密码认证的服务器准备密码暴力攻击。
-    # 每分钟只允许 5 次连接尝试。
-    # REJECT 而不是 DROP 以防止 SSH 客户端重复重新连接。
-    # 如果 SSH 服务器开启了密码认证，请取消注释掉以下内容。
-    ###########################################################
-    # REJECT-WITH tcp-reset
-    iptables_wrapper REJECT-WITH icmp-port-unreachable --proto tcp ${chain_in_params} ${in_params} --limit recent-check:ssh_attack:60:5 --state NEW ${log_params} ${additional}
-    iptables_wrapper --proto tcp ${chain_in_params} ${in_params} --limit recent-set:ssh_attack --state NEW 
+    echo_verbose 'Add ssh server rule...'
 
-    iptables_wrapper ACCEPT --proto tcp ${chain_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
-    iptables_wrapper ACCEPT ${chain_out_params} --proto tcp ${out_params} --state ESTABLISHED ${additional}
+    if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
 
-  elif strcontains "${option}" 'DROP DISABLE BLOCK DENY' --ignorecase; then
+      # port
+      local in_port_params=''
+      local out_port_params=''
+      if [ -n "${port}" ]; then
+        in_port_params="--port-to ${port}"
+        out_port_params="--port-from ${port}"
+        in_params="${in_params} ${in_port_params}"
+        out_params="${out_params} ${out_port_params}"
+      fi
 
-    ###########################################################
-    # Same as ${CMD} service DROP --proto tcp --port 22
-    ###########################################################
-    iptables_wrapper "${option}" --proto tcp ${chain_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
-    iptables_wrapper "${option}" --proto tcp ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
+      ###########################################################
+      # 攻击防护：SSH 暴力破解
+      # SSH为使用密码认证的服务器准备密码暴力攻击。
+      # 每分钟只允许 5 次连接尝试。
+      # REJECT 而不是 DROP 以防止 SSH 客户端重复重新连接。
+      # 如果 SSH 服务器开启了密码认证，请取消注释掉以下内容。
+      ###########################################################
+      # REJECT-WITH tcp-reset
+      iptables_wrapper REJECT-WITH icmp-port-unreachable --proto tcp ${chain_in_params} ${in_params} --limit recent-check:ssh_attack:60:5 --state NEW ${log_params} ${additional}
+      iptables_wrapper --proto tcp ${chain_in_params} ${in_params} --limit recent-set:ssh_attack --state NEW 
+
+      iptables_wrapper ACCEPT --proto tcp ${chain_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
+      iptables_wrapper ACCEPT ${chain_out_params} --proto tcp ${out_params} --state ESTABLISHED ${additional}
+
+
+      if [ -n "${chain}" ]; then
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params} ${additional}
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params} ${additional}
+      fi
+
+      return 0
+
+    elif strcontains "${option}" 'DROP DISABLE BLOCK DENY' --ignorecase; then
+
+      # port
+      local in_port_params=''
+      local out_port_params=''
+      if [ -n "${port}" ]; then
+        in_port_params="--port-to ${port}"
+        out_port_params="--port-from ${port}"
+        in_params="${in_params} ${in_port_params}"
+        out_params="${out_params} ${out_port_params}"
+      fi
+
+      ###########################################################
+      # Same as ${CMD} service DROP --proto tcp --port 22
+      ###########################################################
+      iptables_wrapper "${option}" --proto tcp ${chain_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
+      iptables_wrapper "${option}" --proto tcp ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
+
+      if [ -n "${chain}" ]; then
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params} ${additional}
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params} ${additional}
+      fi
+
+      return 0
+
+    fi
+
+
+  elif [[ ${type} == 'node' ]]; then
+
+    echo_verbose 'Add ssh node rule...'
+
+    if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
+
+      # REJECT-WITH tcp-reset
+      iptables_wrapper REJECT-WITH icmp-port-unreachable --proto tcp ${chain_in_params} ${in_params} --port-to ${port} --limit recent-check:ssh_attack:60:5 --state NEW ${log_params} ${additional}
+      iptables_wrapper --proto tcp ${chain_in_params} ${in_params} --port-to ${port} --limit recent-set:ssh_attack --state NEW 
+
+      iptables_wrapper ACCEPT --proto tcp ${chain_in_params} ${in_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+      iptables_wrapper ACCEPT --proto tcp ${chain_in_params} ${in_params} --port-from ${port} --state ESTABLISHED ${additional}
+
+      iptables_wrapper ACCEPT --proto tcp ${chain_out_params} ${out_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+      iptables_wrapper ACCEPT --proto tcp ${chain_out_params} ${out_params} --port-from ${port} --state ESTABLISHED ${additional}
+
+
+      if [ -n "${chain}" ]; then
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params} --port-to ${port} ${additional}
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params} --port-from ${port} ${additional}
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params} --port-to ${port} ${additional}
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params} --port-from ${port} ${additional}
+      fi
+
+
+
+      return 0
+
+    elif strcontains "${option}" 'DROP DISABLE BLOCK DENY' --ignorecase; then
+
+      iptables_wrapper DROP --proto tcp ${chain_in_params} ${in_params} --port-to ${port} --state NEW,ESTABLISHED ${log_params} ${additional}
+      iptables_wrapper DROP --proto tcp ${chain_in_params} ${in_params} --port-from ${port} --state ESTABLISHED ${additional}
+
+      iptables_wrapper DROP --proto tcp ${chain_out_params} ${out_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+      iptables_wrapper DROP --proto tcp ${chain_out_params} ${out_params} --port-from ${port} --state ESTABLISHED ${additional}
+
+
+      if [ -n "${chain}" ]; then
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params} --port-to ${port} ${additional}
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params} --port-from ${port} ${additional}
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params} --port-to ${port} ${additional}
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params} --port-from ${port} ${additional}
+      fi
+
+      return 0
+
+    fi
 
   fi
 
-  if [ -n "${chain}" ]; then
-    iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params}
-    iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params}
-  fi
 
-  return 0
+  return 1
 
 }
 
@@ -7949,7 +8025,8 @@ function ssh_handler()
     [desc]='ssh package'
 		[port]="${DEFAULT_PORT[SSH]}"
     [protocol]="tcp"
-		[server]="handle_ssh_server"
+    [server]="handle_ssh_protocol"
+    [node]="handle_ssh_protocol"
 	)
 	
 	encode_handler ssh_map
