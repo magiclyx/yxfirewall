@@ -7882,6 +7882,7 @@ function pkg_handler()
     [name]='badpkg'
     [desc]='Invalid package:package state is Invalidate'
     [server]='handle_package_server'
+    [node]='handle_package_server'
   )
 
   encode_handler tcp_map
@@ -7894,6 +7895,7 @@ function synflood_handler()
     [name]='synflood'
     [desc]='Syn-flood attack:it limit syn package speed rate.'
     [server]='handle_synflood_server'
+    [node]='handle_synflood_server'
   )
 
   encode_handler synflood_map
@@ -7906,6 +7908,7 @@ function stealscan_handler()
     [name]='stealscan'
     [desc]='Stealth scan:tcp package with unnormal flags'
     [server]='handle_stealscan_server'
+    [node]='handle_stealscan_server'
   )
 
   encode_handler stealscan_map
@@ -7918,6 +7921,7 @@ function broadcast_handler()
     [name]='broadcast'
     [desc]='broadcast:all broadcast packages'
     [server]='handle_broadcast_server'
+    [node]='handle_broadcast_server'
   )
 
   encode_handler broadcast_map
