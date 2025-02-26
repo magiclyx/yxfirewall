@@ -3548,7 +3548,7 @@ function iptables_wrapper()
 
     if strcontains "${option}" 'Enable Accept Allow' --ignorecase; then
       option="ACCEPT"
-    elif strcontains "${option}" 'Disable Drop Block' --ignorecase; then
+    elif strcontains "${option}" 'Disable Drop Block Deny' --ignorecase; then
       option="DROP"
     elif strcontains "${option}" 'Return' --ignorecase; then
       option="RETURN"
@@ -6514,7 +6514,7 @@ function handle_stealscan_server()
   fi
 
 
-  if strcontains "${option}" 'Block Drop Disable' --ignorecase; then
+  if strcontains "${option}" 'Block Drop Disable Deny' --ignorecase; then
     ##########################################
     # 恶意 TCP 请求
     ##########################################
@@ -6812,7 +6812,7 @@ function handle_broadcast_server()
   fi
 
 
-  if strcontains "${option}" 'Block Drop Disable' --ignorecase; then
+  if strcontains "${option}" 'Block Drop Disable Deny' --ignorecase; then
     ###########################################################
     # 发往所有主机（广播地址、组播地址）的数据包
     ###########################################################
@@ -6831,7 +6831,7 @@ function handle_broadcast_server()
   return 0
 }
 
-function handle_icmp_server_and_client()
+function handle_icmp_protocol()
 {
   local chain=
 
@@ -7044,7 +7044,7 @@ function handle_icmp_server_and_client()
       # 永久禁用icmp时间戳 outgoing
       iptables_wrapper DROP --proto icmp --proto-flag timestamp-reply ${chain_out_params} ${out_params} ${additional}
 
-    elif strcontains "${option}" 'Block Drop Disable' --ignorecase; then
+    elif strcontains "${option}" 'Block Drop Disable Deny' --ignorecase; then
 
       # 丢弃 fragment
       iptables_wrapper DROP --proto icmp --fragment ${chain_in_params} ${in_params} ${log_params} ${additional}
@@ -7076,6 +7076,65 @@ function handle_icmp_server_and_client()
     # icmp 时间戳 限制 incoming
     iptables_wrapper ${option} --proto icmp --proto-flag timestamp-reply ${chain_in_params} ${in_params} --state ESTABLISHED
 
+  elif [[ "${type}" == "node" ]]; then
+    ##########################################
+    # ICMP Node 规则
+    ##########################################
+
+    # 将ICMP 默认超时时间，从30秒改为10妙
+    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_icmp_timeout" --val '10'; then
+      echo_fatal "failed to change 'net.netfilter.nf_conntrack_icmp_timeout' to 10"
+    fi
+    if ! yx_sysctl_config --write --key "net.netfilter.nf_conntrack_icmpv6_timeout" --val '10'; then
+      echo_fatal "failed to change 'net.netfilter.nf_conntrack_icmpv6_timeout' to 10"
+    fi
+
+
+    if strcontains "${option}" 'Allow Accept Enable' --ignorecase; then
+
+      # 丢弃 fragment
+      iptables_wrapper DROP --proto icmp --fragment ${chain_in_params} ${in_params} ${log_params} ${additional}
+
+
+      # ping limit 限制 incoming
+      iptables_wrapper ACCEPT --proto icmp --proto-flag echo-request ${chain_in_params} --limit limit-upto:ping_attack:1/s:10:srcip:::300000 ${in_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+      iptables_wrapper ACCEPT --proto icmp --proto-flag echo-reply ${chain_in_params} ${in_params} --state ESTABLISHED
+      # icmp 时间戳 限制 incoming
+      iptables_wrapper DROP --proto icmp --proto-flag timestamp-request ${chain_in_params} ${in_params} ${additional}
+      iptables_wrapper ACCEPT --proto icmp --proto-flag timestamp-reply ${chain_in_params} ${in_params} --state ESTABLISHED
+
+      # ping limit 限制 outgoing
+      iptables_wrapper ACCEPT --proto icmp --proto-flag echo-reply ${chain_out_params} ${out_params} --state ESTABLISHED
+      iptables_wrapper ACCEPT --proto icmp --proto-flag echo-request ${chain_out_params} ${out_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+
+      # icmp 时间戳 限制 outgoing
+      iptables_wrapper DROP --proto icmp --proto-flag timestamp-reply ${chain_out_params} ${out_params} ${additional}
+      iptables_wrapper ACCEPT --proto icmp --proto-flag timestamp-request ${chain_out_params} ${out_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+
+    elif strcontains "${option}" 'Block Drop Disable Deny' --ignorecase; then
+
+      # 丢弃 fragment
+      iptables_wrapper DROP --proto icmp --fragment ${chain_in_params} ${in_params} ${log_params} ${additional}
+
+
+      # ping limit 限制 incoming
+      iptables_wrapper DROP --proto icmp --proto-flag echo-request ${chain_in_params} ${in_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+      iptables_wrapper DROP --proto icmp --proto-flag echo-reply ${chain_in_params} ${in_params} --state ESTABLISHED
+      # 永久禁用icmp时间戳 incoming
+      iptables_wrapper DROP --proto icmp --proto-flag timestamp-request ${chain_in_params} ${in_params} ${additional}
+      iptables_wrapper DROP --proto icmp --proto-flag timestamp-reply ${chain_in_params} ${in_params} --state ESTABLISHED
+
+      # ping limit 限制 outgoing
+      iptables_wrapper DROP --proto icmp --proto-flag echo-reply ${chain_out_params} ${out_params} --state ESTABLISHED
+      iptables_wrapper DROP --proto icmp --proto-flag echo-request ${chain_out_params} ${out_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+      # 永久禁用icmp时间戳 outgoing
+      iptables_wrapper DROP --proto icmp --proto-flag timestamp-request ${chain_out_params} ${out_params} --state NEW,ESTABLISHED ${log_params} ${additional}
+      iptables_wrapper DROP --proto icmp --proto-flag timestamp-reply ${chain_out_params} ${out_params} ${additional}
+
+    else
+      return 1
+    fi
+    
   fi
 
   if [ -n "${chain}" ]; then
@@ -7870,8 +7929,9 @@ function icmp_handler()
   icmp_map=(
     [name]='icmp'
     [desc]='icmp package'
-    [server]='handle_icmp_server_and_client'
-    [client]='handle_icmp_server_and_client'
+    [server]='handle_icmp_protocol'
+    [client]='handle_icmp_protocol'
+    [node]='handle_icmp_protocol'
   )
 
   encode_handler icmp_map
