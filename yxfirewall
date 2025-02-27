@@ -4092,6 +4092,7 @@ function iptables_wall()
   local not_ip=
   local port=
   local net=
+  local not_net=
 
   local protocol=
   local protocol_flag=
@@ -4192,6 +4193,12 @@ function iptables_wall()
         cursor=$1
 				shift
         net=$1
+			;;
+
+      --not-net )
+        cursor=$1
+				shift
+        not_net=$1
 			;;
 
       --port )
@@ -4435,9 +4442,30 @@ function iptables_wall()
       fi
     }
 
+
+
+    # 要先处理 not-net, 因为 _wall_hadle_inter 和 _wall_handle_ip 中要判断  not_ip 和 not_inter
+    if [[ -n ${not_net} ]]; then
+      if yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}(/[0-3]?[0-9])?$' "${not_net}"; then
+        if [ -n "${not_ip}" ]  &&  [[ "${not_ip}" != "${not_net}" ]]; then
+          echo_fatal "conflict use --not-ip and --not-net in one command."
+        fi
+        not_ip=${not_net}
+      elif yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}-([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}$' "${not_net}"; then
+        if [ -n "${not_ip}" ]  &&  [[ "${not_ip}" != "${not_net}" ]]; then
+          echo_fatal "conflict use --not-ip and --not-net in one command."
+        fi
+        not_ip=${not_net}
+      else
+        if [ -n "${not_interface}" ]  &&  [[ "${not_interface}" != "${not_net}" ]]; then
+          echo_fatal "conflict use --not-inter and --not-net in one command."
+        fi
+        not_interface=${not_net}
+      fi
+    fi
+
     _wall_handle_inter "${interface}"
     _wall_handle_ip "${ip}"
-
 
     if [[ -n ${net} ]]; then
       if yx_str_checkfmt '^([0-2]?[0-9]{1,2}\.){3}[0-2]?[0-9]{1,2}(/[0-3]?[0-9])?$' "${net}"; then
