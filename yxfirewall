@@ -7701,7 +7701,7 @@ function handle_web_protocol()
   return 1
 }
 
-function handle_ftp_server_and_client()
+function handle_ftp_protocol()
 {
 
   local chain=
@@ -7853,16 +7853,6 @@ function handle_ftp_server_and_client()
       out_params="${out_params} --not-ip-to ${not_ip}"
   fi
 
-  # port
-  # 这里port不计入 in_params 和 out_params
-  local in_port_params=''
-  local out_port_params=''
-  if [ -n "${port}" ]; then
-    in_port_params="--port-to ${port}"
-    out_port_params="--port-from ${port}"
-    # in_params="${in_params} ${in_port_params}"
-    # out_params="${out_params} ${out_port_params}"
-  fi
 
   # chain
   # local chain_params=''
@@ -7891,14 +7881,22 @@ function handle_ftp_server_and_client()
         # Allow FTP port 20 for active connections incoming
         iptables_wrapper ACCEPT --proto tcp --port-to 20 ${chain_in_params} ${in_params} --state ESTABLISHED ${additional}
         # Finally allow FTP passive inbound traffic incoming
-        iptables_wrapper ACCEPT --proto tcp ${in_port_params} ${chain_in_params} ${in_params} --state ESTABLISHED,RELATED ${additional}
+        iptables_wrapper ACCEPT --proto tcp --port-to ${port} ${chain_in_params} ${in_params} --state ESTABLISHED,RELATED ${additional}
 
         # Allow FTP connections on port 21 outgoing
         iptables_wrapper ACCEPT --proto tcp --port-from 21 ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
         # Allow FTP port 20 for active connections outgoing
         iptables_wrapper ACCEPT --proto tcp --port-from 20 ${chain_out_params} ${out_params} --state ESTABLISHED,RELATED ${additional}
         # Finally allow FTP passive inbound traffic outgoing
-        iptables_wrapper ACCEPT --proto tcp ${out_port_params} ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
+        iptables_wrapper ACCEPT --proto tcp --port-from ${port} ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
+
+
+        if [ -n "${chain}" ]; then
+          iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-to 20,21 ${in_params}
+          iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-to ${port} ${in_params}
+          iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-from 20,21 ${out_params}
+          iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-from ${port} ${out_params}
+        fi
 
       elif strcontains "${option}" 'DROP DISABLE BLOCK DENY' --ignorecase; then
 
@@ -7907,7 +7905,14 @@ function handle_ftp_server_and_client()
         # Allow FTP port 20 for active connections outgoing
         iptables_wrapper DROP --proto tcp --port-from 20 ${chain_out_params} ${out_params} --state RELATED ${additional}
         # Finally allow FTP passive inbound traffic incoming
-        iptables_wrapper DROP --proto tcp ${in_port_params} ${chain_in_params} ${in_params} --state RELATED ${additional}
+        iptables_wrapper DROP --proto tcp --port-to ${port} ${chain_in_params} ${in_params} --state RELATED ${additional}
+
+        if [ -n "${chain}" ]; then
+          iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-to 20,21 ${in_params}
+          iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-to ${port} ${in_params}
+          iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-from 20,21 ${out_params}
+          iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-from ${port} ${out_params}
+        fi
 
       fi
 
@@ -7915,36 +7920,122 @@ function handle_ftp_server_and_client()
     if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
 
       # Allow FTP connections on port 21 incoming
-      iptables_wrapper ACCEPT --proto tcp --port-to 21 ${chain_in_params} ${in_params} --state ESTABLISHED ${additional}
+      iptables_wrapper ACCEPT --proto tcp --port-from 21 ${chain_in_params} ${in_params} --state ESTABLISHED ${additional}
       # Allow FTP port 20 for active connections incoming
-      iptables_wrapper ACCEPT --proto tcp --port-to 20 ${chain_in_params} ${in_params} --state ESTABLISHED,RELATED ${additional}
+      iptables_wrapper ACCEPT --proto tcp --port-from 20 ${chain_in_params} ${in_params} --state ESTABLISHED,RELATED ${additional}
       # Finally allow FTP passive inbound traffic incoming
-      iptables_wrapper ACCEPT --proto tcp ${in_port_params} ${chain_in_params} ${in_params} --state ESTABLISHED ${additional}
+      iptables_wrapper ACCEPT --proto tcp --port-from ${port} ${chain_in_params} ${in_params} --state ESTABLISHED ${additional}
 
       # Allow FTP connections on port 21 outgoing
-      iptables_wrapper ACCEPT --proto tcp --port-from 21 ${chain_out_params} ${out_params} --state NEW,ESTABLISHED ${additional}
+      iptables_wrapper ACCEPT --proto tcp --port-to 21 ${chain_out_params} ${out_params} --state NEW,ESTABLISHED ${additional}
       # Allow FTP port 20 for active connections outgoing
-      iptables_wrapper ACCEPT --proto tcp --port-from 20 ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
+      iptables_wrapper ACCEPT --proto tcp --port-to 20 ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
       # Finally allow FTP passive inbound traffic outgoing
-      iptables_wrapper ACCEPT --proto tcp ${out_port_params} ${chain_out_params} ${out_params} --state ESTABLISHED,RELATED ${additional}
+      iptables_wrapper ACCEPT --proto tcp --port-to ${port} ${chain_out_params} ${out_params} --state ESTABLISHED,RELATED ${additional}
+
+
+      if [ -n "${chain}" ]; then
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-from 20,21 ${in_params}
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-from ${port} ${in_params}
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-to 20,21 ${out_params}
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-to ${port} ${out_params}
+      fi
 
     elif strcontains "${option}" 'DROP DISABLE BLOCK DENY' --ignorecase; then
 
       # Allow FTP connections on port 21 outgoing
-      iptables_wrapper DROP --proto tcp --port-from 21 ${chain_out_params} ${out_params} --state NEW ${additional}
+      iptables_wrapper DROP --proto tcp --port-to 21 ${chain_out_params} ${out_params} --state NEW ${additional}
       # Allow FTP port 20 for active connections incoming
-      iptables_wrapper DROP --proto tcp --port-to 20 ${chain_in_params} ${in_params} --state RELATED ${additional}
+      iptables_wrapper DROP --proto tcp --port-from 20 ${chain_in_params} ${in_params} --state RELATED ${additional}
       # Finally allow FTP passive inbound traffic outgoing
-      iptables_wrapper DROP --proto tcp ${out_port_params} ${chain_out_params} ${out_params} --state RELATED ${additional}
+      iptables_wrapper DROP --proto tcp --port-to ${port} ${chain_out_params} ${out_params} --state RELATED ${additional}
+
+
+      if [ -n "${chain}" ]; then
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-from 20,21 ${in_params}
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-from ${port} ${in_params}
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-to 20,21 ${out_params}
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-to ${port} ${out_params}
+      fi
 
     fi
-  fi
+  elif [[ ${type} == "node" ]]; then
+    if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
 
-  if [ -n "${chain}" ]; then
-    iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-to 20,21 ${in_params}
-    iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_port_params} ${in_params}
-    iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-from 20,21 ${out_params}
-    iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_port_params} ${out_params}
+      # Allow FTP connections on port 21 incoming
+      iptables_wrapper ACCEPT --proto tcp --port-to 21 ${chain_in_params} ${in_params} --state NEW,ESTABLISHED ${additional}
+      # Allow FTP port 20 for active connections incoming
+      iptables_wrapper ACCEPT --proto tcp --port-to 20 ${chain_in_params} ${in_params} --state ESTABLISHED ${additional}
+      # Finally allow FTP passive inbound traffic incoming
+      iptables_wrapper ACCEPT --proto tcp --port-to ${port} ${chain_in_params} ${in_params} --state ESTABLISHED,RELATED ${additional}
+
+      # Allow FTP connections on port 21 incoming
+      iptables_wrapper ACCEPT --proto tcp --port-from 21 ${chain_in_params} ${in_params} --state ESTABLISHED ${additional}
+      # Allow FTP port 20 for active connections incoming
+      iptables_wrapper ACCEPT --proto tcp --port-from 20 ${chain_in_params} ${in_params} --state ESTABLISHED,RELATED ${additional}
+      # Finally allow FTP passive inbound traffic incoming
+      iptables_wrapper ACCEPT --proto tcp --port-from ${port} ${chain_in_params} ${in_params} --state ESTABLISHED ${additional}
+
+
+
+      # Allow FTP connections on port 21 outgoing
+      iptables_wrapper ACCEPT --proto tcp --port-from 21 ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
+      # Allow FTP port 20 for active connections outgoing
+      iptables_wrapper ACCEPT --proto tcp --port-from 20 ${chain_out_params} ${out_params} --state ESTABLISHED,RELATED ${additional}
+      # Finally allow FTP passive inbound traffic outgoing
+      iptables_wrapper ACCEPT --proto tcp --port-from ${port} ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
+
+      # Allow FTP connections on port 21 outgoing
+      iptables_wrapper ACCEPT --proto tcp --port-to 21 ${chain_out_params} ${out_params} --state NEW,ESTABLISHED ${additional}
+      # Allow FTP port 20 for active connections outgoing
+      iptables_wrapper ACCEPT --proto tcp --port-to 20 ${chain_out_params} ${out_params} --state ESTABLISHED ${additional}
+      # Finally allow FTP passive inbound traffic outgoing
+      iptables_wrapper ACCEPT --proto tcp --port-to ${port} ${chain_out_params} ${out_params} --state ESTABLISHED,RELATED ${additional}
+
+
+
+      if [ -n "${chain}" ]; then
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-to 20,21 ${in_params}
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-to ${port} ${in_params}
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-from 20,21 ${in_params}
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-from ${port} ${in_params}
+
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-from 20,21 ${out_params}
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-from ${port} ${out_params}
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-to 20,21 ${out_params}
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-to ${port} ${out_params}
+      fi
+
+    elif strcontains "${option}" 'DROP DISABLE BLOCK DENY' --ignorecase; then
+
+      # DROP FTP connections on port 21 incoming
+      iptables_wrapper DROP --proto tcp --port-to 21 ${chain_in_params} ${in_params} --state NEW ${additional}
+      # Allow FTP port 20 for active connections outgoing
+      iptables_wrapper DROP --proto tcp --port-from 20 ${chain_out_params} ${out_params} --state RELATED ${additional}
+      # Finally allow FTP passive inbound traffic incoming
+      iptables_wrapper DROP --proto tcp --port-to ${port} ${chain_in_params} ${in_params} --state RELATED ${additional}
+
+      # Allow FTP connections on port 21 outgoing
+      iptables_wrapper DROP --proto tcp --port-to 21 ${chain_out_params} ${out_params} --state NEW ${additional}
+      # Allow FTP port 20 for active connections incoming
+      iptables_wrapper DROP --proto tcp --port-from 20 ${chain_in_params} ${in_params} --state RELATED ${additional}
+      # Finally allow FTP passive inbound traffic outgoing
+      iptables_wrapper DROP --proto tcp --port-to ${port} ${chain_out_params} ${out_params} --state RELATED ${additional}
+
+      if [ -n "${chain}" ]; then
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-to 20,21 ${in_params}
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-to ${port} ${in_params}
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-from 20,21 ${in_params}
+        iptables_wrapper "${chain_in}" --proto tcp --chain INPUT --port-from ${port} ${in_params}
+
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-from 20,21 ${out_params}
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-from ${port} ${out_params}
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-to 20,21 ${out_params}
+        iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT --port-to ${port} ${out_params}
+      fi
+
+    fi
+
   fi
 
 
@@ -8053,8 +8144,9 @@ function ftp_handler()
     [name]='ftp'
     [desc]='ftp package'
     [protocol]="tcp"
-		[server]="handle_ftp_server_and_client"
-		[client]="handle_ftp_server_and_client"
+    [server]="handle_ftp_protocol"
+    [client]="handle_ftp_protocol"
+    [node]="handle_ftp_protocol"
 	)
 	
 	encode_handler ftp_map
