@@ -5927,7 +5927,7 @@ function iptables_storage()
 }
 
 ####################################################################################################
-# build-in handler
+# build-in protocol
 ####################################################################################################
 
 
@@ -7174,13 +7174,286 @@ function handle_icmp_protocol()
   return 0
 }
 
-# SSH
-####################################################################################################
+function handle_dns_protocol()
+{
+  local chain=
+
+  local interface=
+  local not_interface=
+
+  local ip=
+  local not_ip=
+
+  local port=
+
+  local protocol=
+  local protocol_flag=
+
+  local logstr=
+
+  local type=
+
+
+  local option=$1
+  if ! [[ "${option}" =~ ^-.*$ ]]; then
+    shift
+  else
+    option=
+  fi
+
+  local additional=
+  local cursor=
+	while [ $# -gt 0 ]; do
+		case $1 in
+
+      --type )
+        cursor=$1
+				shift
+        type=$1
+			;;
+
+      --chain )
+        cursor=$1
+				shift
+        chain=$1
+			;;
+
+      --interface )
+        cursor=$1
+				shift
+        interface=$1
+			;;
+
+      --not-interface )
+        cursor=$1
+				shift
+        not_interface=$1
+			;;
+
+      --ip )
+        cursor=$1
+				shift
+        ip=$1
+			;;
+
+      --no-ip )
+        cursor=$1
+				shift
+        not_ip=$1
+			;;
+      
+      --port )
+        cursor=$1
+				shift
+        port=$1
+			;;
+
+      --proto )
+        cursor=$1
+				shift
+				protocol=$1
+			;;
+
+      --log )
+        cursor=$1
+				shift
+				logstr=$1
+			;;
+
+			--proto-flag )
+        cursor=$1
+				shift
+        protocol_flag=$1
+			;;
+
+      ####################
+      # For additional params
+      ####################
+			*)
+        if [[ "${cursor}" == '--proto' ]] && [ "${protocol}" == 'tcp' ] && [ $1 == '--syn' ]; then
+          protocol="${protocol} $1"
+        elif [[ "${cursor}" == '--proto-flag' ]]; then
+          protocol_flag="${protocol_flag} $1"
+        else
+          cursor='<additional>' # special cursor for additional params
+          additional="${additional} $1"
+        fi
+				;;
+		esac
+		shift
+	done
+
+
+
+  # fix params
+  ####################
+  # # fix port
+  if [ -z "${port}" ]; then
+    #if no port num from config file. try use default port number
+    port="${DEFAULT_PORT[DNS]}"
+    if [ -z "${port}" ]; then
+      echo_fatal "Failed to find a valid port number on SSH server"
+    fi
+  fi
+
+
+
+  # fix chain
+  local chain_in=INPUT
+  local chain_out=OUTPUT
+  if [ -n "${chain}" ]; then
+    if strcontains "${chain}" 'INPUT OUTPUT FORWARD PREROUTING POSTROUTING ACCEPT DROP REJECT RETURN' --ignorecase; then
+      echo_fatal "Can not use chain with name '${chain}'. "
+    else
+      chain_in="${chain}"_in
+      chain_out="${chain}"_out
+    fi
+  fi
+
+
+
+  # params
+  ####################
+
+  local in_params=''
+  local out_params=''
+
+  # interface
+  if [[ -n "${inter_in_list}" ]] && [[ "${inter_in_list}" != '*' ]]; then
+    in_params="${in_params} --interface-in ${inter_in_list}"
+    out_params="${out_params} --interface-out ${inter_in_list}"
+  fi
+  if [ -n "${not_interface}" ]; then
+    in_params="${in_params} --not-interface-in ${not_interface}"
+    out_params="${out_params} --not-interface-out ${not_interface}"
+  fi
+
+  # ip
+  if [[ -n "${ip_in_list}" ]] && [[ "${ip_in_list}" != '*' ]]; then
+      in_params="${in_params} --ip-from ${ip_in_list}"
+      out_params="${out_params} --ip-to ${ip_in_list}"
+  fi
+  if [ -n "${not_ip}" ]; then
+      in_params="${in_params} --not-ip-from ${not_ip}"
+      out_params="${out_params} --not-ip-to ${not_ip}"
+  fi
+
+
+  # chain
+  # local chain_params=''
+  local chain_in_params=''
+  local chain_out_params=''
+  if [ -n "${chain_in}" ]; then
+    chain_in_params="${chain_in_params} --chain ${chain_in}"
+  fi
+  if [ -n "${chain_out}" ]; then
+    chain_out_params="${chain_out_params} --chain ${chain_out}"
+  fi
+
+  #log
+  local log_params=''
+  if [ -n "${logstr}" ]; then
+    log_params="${log_params} --log ${logstr}"
+  fi
+
+
+  if [[ "${type}" == 'server' ]]; then
+
+    ###########################################################
+    # 攻击防护: DNS
+    # 每秒生成1个连接。
+    # 100次超过上限将受到限制
+    # 生存期300秒
+    ##################################################
+
+    echo_verbose 'Add dns server rule...'
+
+    if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
+      iptables_wrapper ACCEPT --proto tcp ${chain_in_params} --limit limit-upto:dns_dos:1/s:100:srcip:::300000 ${in_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+      iptables_wrapper ACCEPT --proto udp ${chain_in_params} --limit limit-upto:dns_dos:1/s:100:srcip:::300000 ${in_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+    elif strcontains "${option}" 'DROP DISABLE BLOCK DENY' --ignorecase; then
+      iptables_wrapper DROP --proto tcp ${chain_in_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+      iptables_wrapper DROP --proto udp ${chain_in_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+    else
+      echo_fatal "Unknown option '${option}'"
+    fi
+
+    iptables_wrapper ${option} --proto tcp ${chain_out_params} ${out_params} --port-from ${port} --state ESTABLISHED ${additional}
+    iptables_wrapper ${option} --proto udp ${chain_out_params} ${out_params} --port-from ${port} --state ESTABLISHED ${additional}
+
+
+    if [ -n "${chain}" ]; then
+      iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params} --port-to ${port}
+      iptables_wrapper "${chain_in}" --proto udp --chain INPUT ${in_params} --port-to ${port}
+      iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params} --port-from ${port}
+      iptables_wrapper "${chain_out}" --proto udp --chain OUTPUT ${out_params} --port-from ${port}
+    fi
+
+    return 0
+
+  elif [[ ${type} == 'client' ]]; then
+
+    echo_verbose 'Add dns client rule...'
+
+    iptables_wrapper ${option} --proto tcp ${chain_out_params} ${out_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+    iptables_wrapper ${option} --proto udp ${chain_out_params} ${out_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+
+    iptables_wrapper ${option} --proto tcp ${chain_in_params} ${in_params} --port-from ${port} --state ESTABLISHED ${additional}
+    iptables_wrapper ${option} --proto udp ${chain_in_params} ${in_params} --port-from ${port} --state ESTABLISHED ${additional}
+
+    if [ -n "${chain}" ]; then
+      iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params} --port-to ${port}
+      iptables_wrapper "${chain_in}" --proto udp --chain INPUT ${in_params} --port-to ${port}
+      iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params} --port-from ${port}
+      iptables_wrapper "${chain_out}" --proto udp --chain OUTPUT ${out_params} --port-from ${port}
+    fi
+
+    return 0
+
+  elif [[ ${type} == 'node' ]]; then
+
+    echo_verbose 'Add dns node rule...'
+
+    if strcontains "${option}" 'ACCEPT ENABLE ALLOW' --ignorecase; then
+      iptables_wrapper ACCEPT --proto tcp ${chain_in_params} --limit limit-upto:dns_dos:1/s:100:srcip:::300000 ${in_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+      iptables_wrapper ACCEPT --proto udp ${chain_in_params} --limit limit-upto:dns_dos:1/s:100:srcip:::300000 ${in_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+    else
+      iptables_wrapper DROP --proto tcp ${chain_in_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+      iptables_wrapper DROP --proto udp ${chain_in_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+    fi
+
+    iptables_wrapper ${option} --proto tcp ${chain_in_params} ${in_params} --port-from ${port} --state ESTABLISHED ${additional}
+    iptables_wrapper ${option} --proto udp ${chain_in_params} ${in_params} --port-from ${port} --state ESTABLISHED ${additional}
+
+
+    iptables_wrapper ${option} --proto tcp ${chain_out_params} ${out_params} --port-from ${port} --state ESTABLISHED ${additional}
+    iptables_wrapper ${option} --proto udp ${chain_out_params} ${out_params} --port-from ${port} --state ESTABLISHED ${additional}
+
+    iptables_wrapper ${option} --proto tcp ${chain_out_params} ${out_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+    iptables_wrapper ${option} --proto udp ${chain_out_params} ${out_params} --port-to ${port} --state NEW,ESTABLISHED ${additional}
+
+
+    if [ -n "${chain}" ]; then
+      iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params} --port-to ${port}
+      iptables_wrapper "${chain_in}" --proto udp --chain INPUT ${in_params} --port-to ${port}
+      iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params} --port-from ${port}
+      iptables_wrapper "${chain_out}" --proto udp --chain OUTPUT ${out_params} --port-from ${port}
+    fi
+
+
+    return 0
+
+  fi
+
+
+return 1
+
+}
 
 function handle_ssh_protocol()
 {
 
-  local chain=
+local chain=
 
   local interface=
   local not_interface=
@@ -7661,7 +7934,7 @@ function handle_web_protocol()
 
       ###########################################################
       # 攻击防护：HTTP/HTTPS 
-      # 每秒只允许1次连接尝试。
+      # 每秒生成1个连接。
       # 100次超过上限将受到限制
       # 生存期300秒
       ##################################################
@@ -8070,6 +8343,10 @@ function handle_ftp_protocol()
   return 0
 }
 
+
+# build-in handler
+####################################################################################################
+
 function pkg_handler()
 {
   local -A tcp_map
@@ -8134,6 +8411,20 @@ function icmp_handler()
   )
 
   encode_handler icmp_map
+}
+
+function dns_handler()
+{
+  local -A dns_map
+  dns_map=(
+    [name]='dns'
+    [desc]='dns package'
+    [server]='handle_dns_protocol'
+    [client]='handle_dns_protocol'
+    [node]='handle_dns_protocol'
+  )
+
+  encode_handler dns_map
 }
 
 function ssh_handler()
@@ -8209,11 +8500,13 @@ fi
 
 
 # regist build-in handler
+# build-in handler 用于对部分协议添加额外处理逻辑
 regist_handler WALL-PKG pkg_handler
 regist_handler WALL-SYNFLOOD synflood_handler
 regist_handler WALL-SCAN stealscan_handler
 regist_handler WALL-BROADCAST broadcast_handler
 regist_handler ICMP icmp_handler
+regist_handler DNS dns_handler
 regist_handler SSH ssh_handler
 regist_handler Http web_handler
 regist_handler Https web_handler

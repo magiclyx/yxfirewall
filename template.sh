@@ -58,6 +58,14 @@ ICMP_CLT=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+) or \*
 )
 
 ######################
+### DNS ###
+DNS_SRV=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+) or \*
+)
+DNS_CLT=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+) or \*
+  \*
+)
+
+######################
 ### WEB ###
 WEB_SRV=( # interface or ip (ip, ip/mask, ip_from-ip_to) or lo(lo, lo+) or \*
 )
@@ -435,6 +443,71 @@ if [[ "${ICMP_SRV[0]}" ]] || [[ "${ICMP_CLT[0]}" ]]; then
       fi
       net_params=$(net_params "${net}")
       sudo yxfirewall Client ACCEPT --proto icmp --chain "CLT_ICMP" ${net_params} --log yxfirewall-client-icmp:-
+    done
+  fi
+
+fi
+
+
+# 协议DNS
+if [[ "${DNS_SRV[0]}" ]] || [[ "${DNS_CLT[0]}" ]]; then
+  echo_noti "========================================================================================================================"
+  echo_noti "Set DNS rule..."
+  echo_noti "========================================================================================================================"
+
+  # 1. NODE_LIST = NODE_LIST + (SRV_LIST & CLT_LIST)
+  declare -a DNS_NODE_HOST_LIST
+  IFS=" " read -r -a DNS_NODE_HOST_LIST <<< "$(ip_range_intersection 'DNS_SRV' 'DNS_CLT')"
+
+  # 2. SRV_LIST = SRV_LIST - NODE_LIST
+  declare -a DNS_SRV_HOST_LIST
+  IFS=" " read -r -a DNS_SRV_HOST_LIST <<< "$(ip_range_subtraction 'DNS_SRV' 'DNS_NODE_HOST_LIST')"
+
+  # 3. CLT_LIST = CLT_LIST - NODE_LIST
+  declare -a DNS_CLT_HOST_LIST
+  IFS=" " read -r -a DNS_CLT_HOST_LIST <<< "$(ip_range_subtraction 'DNS_CLT' 'DNS_NODE_HOST_LIST')"
+
+
+
+  if [[ ${DNS_NODE_HOST_LIST[0]} ]]; then
+    echo_info "DNS Node rule..."
+    need_space=false
+    for net in "${DNS_NODE_HOST_LIST[@]}"; do
+      if ${need_space}; then
+        echo_verb ""
+      else
+        need_space=true
+      fi
+      net_params=$(net_params "${net}")
+      sudo yxfirewall Node ACCEPT --proto dns --chain "NODE_DNS" ${net_params} --log yxfirewall-node-dns:-
+    done
+  fi
+
+  if [[ ${DNS_SRV_HOST_LIST[0]} ]]; then
+    echo_info "DNS Server rule..."
+    need_space=false
+    for net in "${DNS_SRV_HOST_LIST[@]}"; do
+      if ${need_space}; then
+        echo_verb ""
+      else
+        need_space=true
+      fi
+      net_params=$(net_params "${net}")
+      sudo yxfirewall Server ACCEPT --proto dns --chain "SRV_DNS" ${net_params} --log yxfirewall-server-dns:-
+    done
+  fi
+
+  if [[ ${DNS_CLT_HOST_LIST[0]} ]]; then
+    echo_info "SSH Client rule..."
+    need_space=false
+    for net in "${DNS_CLT_HOST_LIST[@]}"; do
+      if ${need_space}; then
+        echo_verb ""
+      else
+        need_space=true
+      fi
+      net_params=$(net_params "${net}")
+      sudo yxfirewall Client ACCEPT --proto dns --chain "CLT_DNS" ${net_params} --log yxfirewall-client-dns:-
     done
   fi
 
