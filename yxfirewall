@@ -4565,6 +4565,8 @@ function iptables_wall()
 
 
 
+    local inter_in_list
+    local ip_in_list
     for inter_in_list in "${inter_list[@]}"; do
       for ip_in_list in "${ip_list[@]}"; do
 
@@ -5658,7 +5660,7 @@ function iptables_storage()
       echo_verbose "Buckup netfilter key in sysctl.config ..."
       #这里不用 `sysctl -p`, 是希望只备份网络相关配置。 
       local tmp_sysctl_config="${tmp_path}/netfilter.conf"
-      if [ "${NETFILTER_KEY_ARRAY}" ]; then
+      if [ "${NETFILTER_KEY_ARRAY[0]}" ]; then
         for key in "${NETFILTER_KEY_ARRAY[@]}";
         do
           local val=$(yx_sysctl_config --read --key "${key}")
@@ -5673,7 +5675,7 @@ function iptables_storage()
 
       echo_verbose "Buckup ${CMD} netfilter module config ..."
       local tmp_modprobe_netfilter_conig="${tmp_path}/mod_netfilter.conf"
-      if [ "${NETFILTER_MOD_CONFIG_KEY_ARRAY}" ]; then
+      if [ "${NETFILTER_MOD_CONFIG_KEY_ARRAY[0]}" ]; then
         for key in "${NETFILTER_MOD_CONFIG_KEY_ARRAY[@]}";
         do
           local fix_key=$(echo ${key} | tr '#' ' ')
@@ -5804,7 +5806,7 @@ function iptables_storage()
         
         # 恢复modprobe中的配置
         # 这里**暂时**只针对yxfirewall的配置文件
-        if [ "${NETFILTER_MOD_CONFIG_KEY_ARRAY}" ]; then
+        if [ "${NETFILTER_MOD_CONFIG_KEY_ARRAY[0]}" ]; then
 
           echo_verbose "Clear all items in modprobe/${CMD}.conf ..."
           # 删除所有sysctl.conf中netfilter.xxx配置
