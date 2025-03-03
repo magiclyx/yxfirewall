@@ -7404,10 +7404,10 @@ function handle_dns_protocol()
     iptables_wrapper ${option} --proto udp ${chain_in_params} ${in_params} --port-from ${port} --state ESTABLISHED ${additional}
 
     if [ -n "${chain}" ]; then
-      iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params} --port-to ${port}
-      iptables_wrapper "${chain_in}" --proto udp --chain INPUT ${in_params} --port-to ${port}
-      iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params} --port-from ${port}
-      iptables_wrapper "${chain_out}" --proto udp --chain OUTPUT ${out_params} --port-from ${port}
+      iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params} --port-from ${port}
+      iptables_wrapper "${chain_in}" --proto udp --chain INPUT ${in_params} --port-from ${port}
+      iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params} --port-to ${port}
+      iptables_wrapper "${chain_out}" --proto udp --chain OUTPUT ${out_params} --port-to ${port}
     fi
 
     return 0
@@ -7438,6 +7438,11 @@ function handle_dns_protocol()
     if [ -n "${chain}" ]; then
       iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params} --port-to ${port}
       iptables_wrapper "${chain_in}" --proto udp --chain INPUT ${in_params} --port-to ${port}
+      iptables_wrapper "${chain_in}" --proto tcp --chain INPUT ${in_params} --port-from ${port}
+      iptables_wrapper "${chain_in}" --proto udp --chain INPUT ${in_params} --port-from ${port}
+
+      iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params} --port-to ${port}
+      iptables_wrapper "${chain_out}" --proto udp --chain OUTPUT ${out_params} --port-to ${port}
       iptables_wrapper "${chain_out}" --proto tcp --chain OUTPUT ${out_params} --port-from ${port}
       iptables_wrapper "${chain_out}" --proto udp --chain OUTPUT ${out_params} --port-from ${port}
     fi
